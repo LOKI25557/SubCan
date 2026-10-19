@@ -1,0 +1,226 @@
+{
+  "$schema_description": "SubCan Synthetic Mock Subscription Fixtures. Test fixtures only; no live cancellation is executed.",
+  "metadata": {
+    "generated_for": "SubCan Phase 0 Foundation",
+    "rule_target": "Inactivity >= 3 calendar months (approx. 90 days)",
+    "synthetic": true
+  },
+  "subscriptions": [
+    {
+      "subscription_id": "sub_tc1_cinevault",
+      "service_name": "CineVault Mock Streaming",
+      "status": "active",
+      "renewal_date": "2026-11-15",
+      "last_used_at": "2026-06-10T20:30:00Z",
+      "source_url": "https://mock.streaming.test/cinevault/account",
+      "source_record_id": "cust_mock_cv_001",
+      "monthly_cost": 14.99,
+      "currency": "USD",
+      "billing_cycle": "monthly",
+      "cancellation_terms_url": "https://mock.streaming.test/cinevault/terms/cancellation",
+      "data_deletion_warning": false,
+      "pause_option_available": false
+    },
+    {
+      "subscription_id": "sub_tc2_audiocloud",
+      "service_name": "AudioCloud Pro Mock",
+      "status": "active",
+      "renewal_date": "2026-11-01",
+      "last_used_at": "2026-05-14T11:15:00Z",
+      "source_url": "https://mock.streaming.test/audiocloud/account",
+      "source_record_id": "cust_mock_ac_002",
+      "monthly_cost": 19.99,
+      "currency": "USD",
+      "billing_cycle": "monthly",
+      "cancellation_terms_url": "https://mock.streaming.test/audiocloud/terms/privacy",
+      "data_deletion_warning": true,
+      "pause_option_available": false
+    },
+    {
+      "subscription_id": "sub_tc3_fitstream",
+      "service_name": "FitStream Pass Mock",
+      "status": "active",
+      "renewal_date": "2026-11-20",
+      "last_used_at": "2026-04-02T08:00:00Z",
+      "source_url": "https://mock.streaming.test/fitstream/account",
+      "source_record_id": "cust_mock_fs_003",
+      "monthly_cost": 29.99,
+      "currency": "USD",
+      "billing_cycle": "monthly",
+      "cancellation_terms_url": "https://mock.streaming.test/fitstream/policy/pause",
+      "data_deletion_warning": false,
+      "pause_option_available": true
+    },
+    {
+      "subscription_id": "sub_tc4_moviemax",
+      "service_name": "MovieMax Mock",
+      "status": "active",
+      "renewal_date": "2026-11-10",
+      "last_used_at": "2026-06-01T19:00:00Z",
+      "source_url": "https://mock.streaming.test/moviemax/account",
+      "source_record_id": "cust_mock_mm_004a",
+      "monthly_cost": 11.99,
+      "currency": "USD",
+      "billing_cycle": "monthly",
+      "cancellation_terms_url": "https://mock.streaming.test/moviemax/terms",
+      "data_deletion_warning": false,
+      "pause_option_available": false
+    },
+    {
+      "subscription_id": "sub_tc4_gamestream",
+      "service_name": "GameStream Mock",
+      "status": "active",
+      "renewal_date": "2026-11-28",
+      "last_used_at": "2026-05-20T21:45:00Z",
+      "source_url": "https://mock.streaming.test/gamestream/account",
+      "source_record_id": "cust_mock_gs_004b",
+      "monthly_cost": 15.99,
+      "currency": "USD",
+      "billing_cycle": "monthly",
+      "cancellation_terms_url": "https://mock.streaming.test/gamestream/terms",
+      "data_deletion_warning": false,
+      "pause_option_available": false
+    }
+  ],
+  "scenarios": {
+    "TC1": {
+      "scenario_id": "TC1",
+      "title": "Standard Inactive Streaming Subscription",
+      "description": "An active subscription unused for more than three calendar months (>= 90 days), with standard cancellation terms available.",
+      "target_subscription_ids": ["sub_tc1_cinevault"],
+      "expected_eligibility": "candidate",
+      "expected_verification_result": "verified_cancelled",
+      "evidence": [
+        {
+          "evidence_id": "ev_tc1_01",
+          "subscription_id": "sub_tc1_cinevault",
+          "evidence_type": "usage_history",
+          "excerpt": "Last playback activity observed on 2026-06-10T20:30:00Z for title 'Cosmic Odyssey Ep 4'. No subsequent playback or profile logons recorded.",
+          "source_url": "https://mock.streaming.test/cinevault/api/v1/playback_logs",
+          "captured_at": "2026-10-18T09:00:00Z",
+          "confidence": 0.95,
+          "raw_reference": {
+            "source_type": "synthetic_playback_feed",
+            "session_id": "sess_synth_99812"
+          }
+        },
+        {
+          "evidence_id": "ev_tc1_02",
+          "subscription_id": "sub_tc1_cinevault",
+          "evidence_type": "cancellation_terms",
+          "excerpt": "Subscribers may cancel at any time. Access remains active until the end of the current billing cycle (2026-11-15). Viewing history is preserved for 12 months.",
+          "source_url": "https://mock.streaming.test/cinevault/terms/cancellation",
+          "captured_at": "2026-10-18T09:05:00Z",
+          "confidence": 1.0,
+          "raw_reference": {
+            "policy_version": "2026.1"
+          }
+        }
+      ]
+    },
+    "TC2": {
+      "scenario_id": "TC2",
+      "title": "Immediate Data Deletion Risk",
+      "description": "A subscription whose cancellation immediately deletes data (cloud playlists, audio stems, user library), requiring an explicit warning before approval.",
+      "target_subscription_ids": ["sub_tc2_audiocloud"],
+      "expected_eligibility": "candidate",
+      "warning_required": true,
+      "warning_message": "Immediate and permanent loss of cloud library, audio stems, and playlists upon cancellation.",
+      "evidence": [
+        {
+          "evidence_id": "ev_tc2_01",
+          "subscription_id": "sub_tc2_audiocloud",
+          "evidence_type": "usage_history",
+          "excerpt": "Zero audio stream requests or library uploads detected since 2026-05-14T11:15:00Z.",
+          "source_url": "https://mock.streaming.test/audiocloud/api/v1/metrics",
+          "captured_at": "2026-10-18T09:10:00Z",
+          "confidence": 0.98,
+          "raw_reference": {
+            "source_type": "synthetic_metrics"
+          }
+        },
+        {
+          "evidence_id": "ev_tc2_02",
+          "subscription_id": "sub_tc2_audiocloud",
+          "evidence_type": "cancellation_terms",
+          "excerpt": "CRITICAL NOTICE: Cancelling Pro subscription immediately purges all saved audio stems, cloud playlists, and user metadata from storage. Irreversible after execution.",
+          "source_url": "https://mock.streaming.test/audiocloud/terms/cancellation",
+          "captured_at": "2026-10-18T09:12:00Z",
+          "confidence": 1.0,
+          "raw_reference": {
+            "clause": "Section 9.4 (Immediate Data Purge)"
+          }
+        }
+      ]
+    },
+    "TC3": {
+      "scenario_id": "TC3",
+      "title": "Pause Alternative Available (Never Misreport as Cancelled)",
+      "description": "A subscription offering a pause option instead of outright cancellation; pausing must never be misreported as cancelled during verification.",
+      "target_subscription_ids": ["sub_tc3_fitstream"],
+      "expected_eligibility": "candidate",
+      "pause_alternative_available": true,
+      "invariant": "Pause status must never be reported as verified_cancelled.",
+      "evidence": [
+        {
+          "evidence_id": "ev_tc3_01",
+          "subscription_id": "sub_tc3_fitstream",
+          "evidence_type": "usage_history",
+          "excerpt": "No workout session completions logged since 2026-04-02T08:00:00Z.",
+          "source_url": "https://mock.streaming.test/fitstream/api/activity",
+          "captured_at": "2026-10-18T09:20:00Z",
+          "confidence": 0.92,
+          "raw_reference": {
+            "source_type": "synthetic_workout_log"
+          }
+        },
+        {
+          "evidence_id": "ev_tc3_02",
+          "subscription_id": "sub_tc3_fitstream",
+          "evidence_type": "pause_policy",
+          "excerpt": "Subscribers may pause billing for up to 90 days at zero charge without losing account rank, workout records, or legacy pricing. A paused subscription is NOT cancelled.",
+          "source_url": "https://mock.streaming.test/fitstream/policy/pause",
+          "captured_at": "2026-10-18T09:25:00Z",
+          "confidence": 0.99,
+          "raw_reference": {
+            "clause": "Section 4.1 (Billing Freeze)"
+          }
+        }
+      ]
+    },
+    "TC4": {
+      "scenario_id": "TC4",
+      "title": "Multiple Subscriptions with Independent Approval Isolation",
+      "description": "Multiple active subscriptions evaluated simultaneously where approval for one must NOT affect, cascade, or authorize cancellation for the other.",
+      "target_subscription_ids": ["sub_tc4_moviemax", "sub_tc4_gamestream"],
+      "expected_eligibility": "candidate",
+      "invariant": "Approving plan for sub_tc4_moviemax leaves sub_tc4_gamestream in awaiting_approval status.",
+      "evidence": [
+        {
+          "evidence_id": "ev_tc4_01",
+          "subscription_id": "sub_tc4_moviemax",
+          "evidence_type": "usage_history",
+          "excerpt": "MovieMax last streamed 2026-06-01T19:00:00Z. Candidate for cancellation.",
+          "source_url": "https://mock.streaming.test/moviemax/api/logs",
+          "captured_at": "2026-10-18T09:30:00Z",
+          "confidence": 0.94,
+          "raw_reference": {
+            "service": "MovieMax Mock"
+          }
+        },
+        {
+          "evidence_id": "ev_tc4_02",
+          "subscription_id": "sub_tc4_gamestream",
+          "evidence_type": "usage_history",
+          "excerpt": "GameStream last streamed 2026-05-20T21:45:00Z. Candidate for cancellation.",
+          "source_url": "https://mock.streaming.test/gamestream/api/logs",
+          "captured_at": "2026-10-18T09:35:00Z",
+          "confidence": 0.91,
+          "raw_reference": {
+            "service": "GameStream Mock"
+          }
+        }
+      ]
+    }
+  }
+}
