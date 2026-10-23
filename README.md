@@ -115,6 +115,7 @@ SubCan/
         ├── test_connectors.py         # Mock connectors, retries, extraction tests (36)
         ├── test_database.py           # SQLite persistence & restart recovery tests (4)
         ├── test_api.py                # FastAPI REST endpoint integration tests (15)
+        ├── test_dashboard_ui.py       # Dashboard UI rendering, drawer lifecycle, & XSS tests (12)
         └── test_official_acceptance.py # Official TC1-TC4 and edge cases acceptance test (1)
 ```
 
@@ -223,7 +224,7 @@ The system includes automated tests and a live UI scorecard for the four officia
 
 ## 9. Test Suite Execution & Verification
 
-To run the complete automated test suite across all 12 modules:
+To run the complete automated test suite across all 13 modules:
 
 ```bash
 pytest -v
@@ -239,26 +240,27 @@ configfile: pytest.ini
 testpaths: backend/tests
 plugins: anyio-4.13.0, asyncio-1.4.0
 
-backend/tests/test_actions.py ................                           [  9%]
-backend/tests/test_agent.py ..............                               [ 17%]
-backend/tests/test_api.py ...............                                [ 26%]
-backend/tests/test_approvals.py .................                        [ 36%]
-backend/tests/test_connectors.py ....................................    [ 57%]
-backend/tests/test_database.py ....                                      [ 59%]
-backend/tests/test_health.py ...                                         [ 61%]
-backend/tests/test_models.py ...................                         [ 72%]
-backend/tests/test_official_acceptance.py .                              [ 73%]
-backend/tests/test_planner.py ..............                             [ 81%]
+backend/tests/test_actions.py ................                           [  8%]
+backend/tests/test_agent.py ..............                               [ 16%]
+backend/tests/test_api.py ...............                                [ 24%]
+backend/tests/test_approvals.py .................                        [ 33%]
+backend/tests/test_connectors.py ....................................    [ 53%]
+backend/tests/test_dashboard_ui.py ............                          [ 59%]
+backend/tests/test_database.py ....                                      [ 61%]
+backend/tests/test_health.py ...                                         [ 63%]
+backend/tests/test_models.py ...................                         [ 73%]
+backend/tests/test_official_acceptance.py .                              [ 74%]
+backend/tests/test_planner.py ..............                             [ 82%]
 backend/tests/test_rules.py ......................                       [ 94%]
 backend/tests/test_verification.py ...........                           [100%]
 
-============================ 172 passed in 10.00s =============================
+============================ 184 passed in 7.74s ==============================
 ```
 
-**Total Tests:** 172  
-**Passed:** 172 (100%)  
-**Failed:** 0  
-**Skipped:** 0  
+- **Total Tests:** 184
+- **Passed:** 184 (100%)
+- **Failed:** 0
+- **Skipped:** 0
 
 ---
 
