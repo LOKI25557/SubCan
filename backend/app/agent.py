@@ -23,6 +23,7 @@ from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import threading
+from uuid import uuid4
 from typing import Dict, List, Optional, Tuple
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -78,11 +79,28 @@ class AgentRunRegistry:
         self._lock = threading.Lock()
         self._runs: Dict[str, AgentRun] = {}
         self._contexts: Dict[str, Dict[str, SubscriptionRunState]] = {}
+        self._restore_persisted_runs()
+
+    def _restore_persisted_runs(self) -> None:
+        """Restore durable snapshots without making persistence required for tests."""
+        try:
+            from backend.app.database import load_run_snapshots
+
+            for run, context in load_run_snapshots():
+                self._runs[run.run_id] = run
+                self._contexts[run.run_id] = context
+        except (OSError, ValueError):
+            # A malformed or unavailable database must not hide the API's
+            # in-memory workflow; writes still surface errors explicitly.
+            return
 
     def save_run(self, run: AgentRun, context: Dict[str, SubscriptionRunState]) -> None:
         with self._lock:
             self._runs[run.run_id] = run
             self._contexts[run.run_id] = context
+        from backend.app.database import persist_run
+
+        persist_run(run, context)
 
     def get_run(self, run_id: str) -> Optional[AgentRun]:
         with self._lock:
@@ -163,7 +181,7 @@ def initialize_orchestration_run(
 
     active_registry = registry or _GLOBAL_RUN_REGISTRY
     evidence_dict = evidence_map or {}
-    run_identifier = run_id or f"run_{int(as_of.timestamp())}"
+    run_identifier = run_id or f"run_{int(as_of.timestamp())}_{uuid4().hex[:8]}"
 
     sub_states: Dict[str, SubscriptionRunState] = {}
     final_results: Dict[str, FinalResultStatus] = {}
@@ -192,6 +210,9 @@ def initialize_orchestration_run(
                 decision=decision,
                 evidence_list=ev_list,
                 created_at=as_of,
+            )
+            plan = plan.model_copy(
+                update={"plan_id": f"{plan.plan_id}_{run_identifier}"}
             )
             final_status = FinalResultStatus.PENDING
             diag_notes = "Plan generated and awaiting explicit user approval."
@@ -290,6 +311,7 @@ def process_subscription_approval(
         )
         run.final_results[target_sub_id] = FinalResultStatus.BLOCKED
         _reconcile_run_summary(run, contexts, as_of=as_of)
+        active_registry.save_run(run, contexts)
         return state
 
     # --------------------------------------------------------------------------
@@ -301,6 +323,7 @@ def process_subscription_approval(
         state.diagnostic_notes = "Cancellation declined by user. Subscription kept active."
         run.final_results[target_sub_id] = FinalResultStatus.KEPT
         _reconcile_run_summary(run, contexts, as_of=as_of)
+        active_registry.save_run(run, contexts)
         return state
 
     # --------------------------------------------------------------------------
@@ -334,6 +357,7 @@ def process_subscription_approval(
         state.diagnostic_notes = "Approval validation failed closed (mismatched, stale, or malformed)."
         run.final_results[target_sub_id] = FinalResultStatus.BLOCKED
         _reconcile_run_summary(run, contexts, as_of=as_of)
+        active_registry.save_run(run, contexts)
         return state
 
     # --------------------------------------------------------------------------
@@ -388,6 +412,7 @@ def process_subscription_approval(
 
     run.final_results[target_sub_id] = state.final_status
     _reconcile_run_summary(run, contexts, as_of=as_of)
+    active_registry.save_run(run, contexts)
     return state
 
 

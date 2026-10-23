@@ -8,10 +8,10 @@ SubCan is an AI-assisted FinTech workflow that identifies streaming subscription
 
 ## Phase 0: Foundation & Team Independence
 
-This repository is currently at **Phase 0**. The objective of Phase 0 is to establish a rock-solid, shared development foundation, standardized Pydantic data schemas, API contracts, and synthetic fixtures so that teammates can develop their components in parallel without blocking each other.
+The repository contains the shared foundation, the orchestrated approval workflow, durable SQLite persistence, and a static dashboard for reviewing synthetic subscriptions.
 
 > [!NOTE]
-> During Phase 0, the full cancellation agent is **not yet implemented**. The application provides a minimal, working FastAPI foundation (`GET /health`), fully validated shared data models, four comprehensive synthetic test fixtures, and verified unit tests.
+> The application only uses synthetic fixtures and mock actions. A successful action is never treated as proof of cancellation; independent verification remains mandatory.
 
 ---
 
@@ -54,7 +54,7 @@ This repository is currently at **Phase 0**. The objective of Phase 0 is to esta
 - **Testing:** pytest, pytest-asyncio, HTTPX
 - **Version Control:** Git & GitHub
 
-*(Phase 0 does not introduce React, SQLite connections, browser automation, LLM APIs, or external dependencies.)*
+The dashboard is a dependency-free static client served by FastAPI. SQLite persistence is provided by Python's standard library.
 
 ---
 
@@ -150,6 +150,8 @@ uvicorn backend.app.main:app --reload
 - Application runs at: `http://127.0.0.1:8000`
 - Interactive Swagger UI: `http://127.0.0.1:8000/docs`
 - ReDoc alternative docs: `http://127.0.0.1:8000/redoc`
+- Dashboard: `http://127.0.0.1:8000/dashboard/`
+- SQLite database: `reports/subcan.db` by default; override with `DATABASE_URL`.
 
 ### 4. Run the Test Suite
 
@@ -174,10 +176,10 @@ The fixture file contains four officially specified test cases:
 
 ## Current Limitations & Roadmap
 
-### Phase 0 Limitations
-- Only `GET /health` is implemented as an active endpoint.
-- Future endpoints (`/runs`, `/plans/{id}/approve`, etc.) are documented contracts.
-- Connectors and database layers are documented placeholders.
+### Current Limitations
+- Connector records are synthetic fixtures; production provider integrations are not enabled.
+- The dashboard requires the API process and uses the configured SQLite database.
+- Authentication and user identity are outside this repository's current scope.
 
 ### Upcoming Phases
 - **Phase 1:** Decision rules (3-month inactivity detection), mock site connector ingestion, and plan generation.

@@ -13,16 +13,17 @@
 | Endpoint | Method | Phase Status | Primary Module Owner |
 |---|---|---|---|
 | `/health` | `GET` | **IMPLEMENTED (Phase 0)** | Loki (Backend Starter) |
-| `/runs` | `POST` | *Planned (Phase 3)* | Loki (Agent Orchestrator) |
-| `/runs/{run_id}` | `GET` | *Planned (Phase 3)* | Loki / Dadu |
-| `/runs/{run_id}/subscriptions` | `GET` | *Planned (Phase 3)* | Dadu (Persistence / Queries) |
-| `/plans/{plan_id}/approve` | `POST` | *Planned (Phase 1)* | Loki (Approvals) |
-| `/plans/{plan_id}/decline` | `POST` | *Planned (Phase 1)* | Loki (Approvals) |
-| `/actions/{action_id}/verify` | `POST` | *Planned (Phase 2)* | Loki (Verification) |
-| `/runs/{run_id}/report` | `GET` | *Planned (Phase 3)* | Dadu / Loki (Reporting) |
+| `/runs` | `POST` | **IMPLEMENTED** | Loki (Agent Orchestrator) |
+| `/subscriptions` | `GET` | **IMPLEMENTED** | Chinmay / Dadu |
+| `/runs/{run_id}` | `GET` | **IMPLEMENTED** | Loki / Dadu |
+| `/runs/{run_id}/subscriptions` | `GET` | **IMPLEMENTED** | Dadu (Persistence / Queries) |
+| `/plans/{plan_id}/approve` | `POST` | **IMPLEMENTED** | Loki (Approvals) |
+| `/plans/{plan_id}/decline` | `POST` | **IMPLEMENTED** | Loki (Approvals) |
+| `/actions/{action_id}/verify` | `POST` | **IMPLEMENTED** | Loki (Verification) |
+| `/runs/{run_id}/report` | `GET` | **IMPLEMENTED** | Dadu / Loki (Reporting) |
 
 > [!IMPORTANT]
-> During Phase 0, only `GET /health` is functional. All other endpoints are planned contracts designed to allow Chinmay (connectors) and Dadu (database/UI) to build their respective integrations with zero ambiguity.
+> The dashboard is available at `/dashboard/`. All workflow state is persisted in SQLite configured by `DATABASE_URL`; only synthetic fixtures and mock actions are supported.
 
 ---
 
@@ -100,6 +101,14 @@ Standard HTTP status codes:
   ```
 - **Error Behavior:**
   - `400 Bad Request` if `subscription_ids` is empty or invalid.
+
+### 3.2a. `GET /subscriptions`
+
+**Status:** Implemented.
+
+- **Purpose:** Returns the synthetic connector records available for a review run.
+- **Response:** An array of canonical `Subscription` objects.
+- **Dashboard:** The static review UI is served at `GET /dashboard/`.
 
 ---
 

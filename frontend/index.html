@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SubCan Dashboard</title>
+  <link rel="stylesheet" href="/dashboard/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="header">
+      <div>
+        <p class="eyebrow">SUBCAN CONTROL CENTER</p>
+        <h1>Subscription review</h1>
+        <p class="muted">Review evidence, approve exact plans, and verify outcomes.</p>
+      </div>
+      <button id="refresh" class="button secondary">Refresh</button>
+    </header>
+
+    <section id="notice" class="notice" role="status" hidden></section>
+    <section id="cards" class="cards" aria-label="Overview">
+      <article><span>Total subscriptions</span><strong id="total">0</strong></article>
+      <article><span>Inactive candidates</span><strong id="inactive">0</strong></article>
+      <article><span>Requiring review</span><strong id="review">0</strong></article>
+      <article><span>Pending approvals</span><strong id="pending">0</strong></article>
+      <article><span>Verified cancellations</span><strong id="verified">0</strong></article>
+      <article><span>Failed or blocked</span><strong id="blocked">0</strong></article>
+    </section>
+
+    <section class="toolbar" aria-label="Subscription controls">
+      <label>Search <input id="search" type="search" placeholder="Service name or ID"></label>
+      <label>Status
+        <select id="status-filter">
+          <option value="">All statuses</option>
+          <option value="active">Active</option>
+          <option value="cancelled">Cancelled</option>
+          <option value="unknown">Unknown</option>
+        </select>
+      </label>
+      <button id="start-run" class="button primary">Start review run</button>
+    </section>
+
+    <section class="panel">
+      <div class="panel-heading">
+        <div><h2>Subscriptions</h2><p id="run-label" class="muted">No review run selected.</p></div>
+      </div>
+      <div id="loading" class="empty">Loading subscription records…</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Service</th><th>Status</th><th>Last used</th><th>Renewal</th><th>Eligibility</th><th>Workflow</th><th></th></tr></thead>
+          <tbody id="subscription-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="detail" class="panel detail" hidden>
+      <div class="panel-heading"><div><h2 id="detail-title">Subscription details</h2><p id="detail-subtitle" class="muted"></p></div><button id="close-detail" class="icon-button" aria-label="Close details">×</button></div>
+      <div id="detail-content"></div>
+    </section>
+  </main>
+  <script src="/dashboard/app.js"></script>
+</body>
+</html>

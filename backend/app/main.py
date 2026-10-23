@@ -20,10 +20,12 @@ SAFETY INVARIANTS:
 
 from datetime import datetime, timezone
 import threading
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.app.actions import (
@@ -211,6 +213,12 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+app.mount(
+    "/dashboard",
+    StaticFiles(directory=Path(__file__).resolve().parents[2] / "frontend", html=True),
+    name="dashboard",
+)
+
 
 @app.exception_handler(HTTPException)
 async def custom_http_exception_handler(request: Request, exc: HTTPException):
@@ -262,7 +270,7 @@ def find_plan_context(plan_id: str) -> Optional[Tuple[str, str, SubscriptionRunS
     """Locate (run_id, subscription_id, SubscriptionRunState) containing plan_id."""
     registry = get_agent_run_registry()
     with registry._lock:
-        for run_id, sub_states in registry._contexts.items():
+        for run_id, sub_states in reversed(list(registry._contexts.items())):
             for sub_id, state in sub_states.items():
                 if state.plan is not None and state.plan.plan_id == plan_id:
                     return run_id, sub_id, state
@@ -273,7 +281,7 @@ def find_action_context(action_id: str) -> Optional[Tuple[str, str, Subscription
     """Locate (run_id, subscription_id, SubscriptionRunState) associated with action_id."""
     registry = get_agent_run_registry()
     with registry._lock:
-        for run_id, sub_states in registry._contexts.items():
+        for run_id, sub_states in reversed(list(registry._contexts.items())):
             for sub_id, state in sub_states.items():
                 if state.action_result is not None and state.action_result.action_id == action_id:
                     return run_id, sub_id, state
@@ -341,6 +349,23 @@ def create_run(req: CreateRunRequest) -> AgentRun:
         as_of=as_of,
     )
     return run
+
+
+@app.get(
+    "/subscriptions",
+    response_model=List[Subscription],
+    tags=["Subscriptions"],
+    summary="List available subscriptions",
+    description="Returns the connector-provided subscription records used to start a review run.",
+)
+def list_subscriptions() -> List[Subscription]:
+    """Expose current connector records for dashboard run selection."""
+    subscriptions, _ = load_fixture_data()
+    from backend.app.database import save_subscription
+
+    for subscription in subscriptions:
+        save_subscription(subscription)
+    return subscriptions
 
 
 @app.get(
@@ -598,6 +623,9 @@ def decline_plan(plan_id: str, req: DeclinePlanRequest) -> Approval:
 def verify_action(action_id: str, req: VerifyActionRequest) -> VerificationResult:
     """Perform independent verification check for an executed cancellation action."""
     action = get_action_registry().get(action_id)
+    located = find_action_context(action_id)
+    if action is None and located is not None:
+        action = located[2].action_result
     if action is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -613,7 +641,6 @@ def verify_action(action_id: str, req: VerifyActionRequest) -> VerificationResul
             },
         )
 
-    located = find_action_context(action_id)
     service_name = located[2].plan.service_name if located and located[2].plan else None
 
     as_of = req.as_of or datetime.now(timezone.utc)
@@ -645,6 +672,7 @@ def verify_action(action_id: str, req: VerifyActionRequest) -> VerificationResul
         if run and contexts:
             run.final_results[sub_id] = state.final_status
             _reconcile_run_summary(run, contexts, as_of=as_of)
+            get_agent_run_registry().save_run(run, contexts)
 
     return verif
 
