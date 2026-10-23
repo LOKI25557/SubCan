@@ -31,6 +31,10 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
           Subscriptions
         </button>
+        <button id="tab-btn-email" class="nav-tab" role="tab" aria-selected="false" data-tab="tab-email">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          Email Discovery
+        </button>
         <button id="tab-btn-audit" class="nav-tab" role="tab" aria-selected="false" data-tab="tab-audit">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
           Audit & Reconciliation
@@ -42,6 +46,10 @@
       </nav>
 
       <div class="header-actions">
+        <button id="export-user-data-btn" class="button secondary icon-btn" title="Export all user data (GDPR JSON)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export Data
+        </button>
         <button id="refresh" class="button secondary icon-btn" title="Refresh state">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
           Refresh
@@ -58,6 +66,10 @@
           <p class="muted subtitle">Deterministic inactivity rules, explicit human approval gate, safe execution, and independent provider verification.</p>
         </div>
         <div class="run-control-box">
+          <button id="open-add-sub-modal" class="button secondary icon-btn" title="Manually add a subscription">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Subscription
+          </button>
           <div class="run-meta">
             <span class="label">CURRENT RUN</span>
             <strong id="active-run-id">No active run</strong>
@@ -299,6 +311,73 @@
           </div>
         </section>
       </div>
+
+      <!-- Tab 4: Email Discovery & Review -->
+      <div id="tab-email" class="tab-pane" role="tabpanel" hidden>
+        <div class="email-panel">
+          <!-- Connection Status Hero Card -->
+          <section class="email-hero">
+            <div class="email-meta-box">
+              <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 4px;">
+                <span id="email-status-pill" class="status-indicator disconnected">
+                  <span class="pulse-dot"></span> <span id="email-status-label">Disconnected</span>
+                </span>
+                <span class="badge" id="oauth-mode-badge">Google OAuth 2.0</span>
+              </div>
+              <h2 id="email-address-display" style="font-size: 20px; font-weight: 700; color: #fff;">No connected mailbox</h2>
+              <p class="muted" style="font-size: 13px;">Connect your Gmail account with read-only access to automatically detect recurring streaming and software receipts.</p>
+              <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                Last synchronized: <strong id="email-last-sync" style="color: var(--text-secondary);">Never</strong>
+              </div>
+            </div>
+            <div class="email-actions-box">
+              <button id="email-connect-btn" class="button primary glow">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+                Connect Gmail Account
+              </button>
+              <button id="email-sync-btn" class="button secondary icon-btn" title="Scan mailbox for billing receipts">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                Sync Billing Emails
+              </button>
+              <button id="email-disconnect-btn" class="button secondary small" style="display: none;">
+                Disconnect
+              </button>
+            </div>
+          </section>
+
+          <!-- Candidate Review List -->
+          <section class="table-card">
+            <div class="card-header">
+              <div>
+                <h2>Discovered Subscription Candidates</h2>
+                <p class="muted">Review candidate subscriptions extracted from billing emails. Confirm to add them to your unified monitoring inventory.</p>
+              </div>
+              <span id="candidate-count-badge" class="badge">0 candidates pending</span>
+            </div>
+
+            <div id="candidates-loading" class="empty-state" hidden>Searching mailbox and extracting subscription receipts…</div>
+
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>MERCHANT / PROVIDER</th>
+                    <th>DETECTED COST</th>
+                    <th>CYCLE</th>
+                    <th>RENEWAL DATE</th>
+                    <th>CONFIDENCE</th>
+                    <th>EMAIL EVIDENCE EXCERPT</th>
+                    <th>STATUS / ACTIONS</th>
+                  </tr>
+                </thead>
+                <tbody id="candidate-rows">
+                  <tr><td colspan="7" class="empty-state">No candidates discovered yet. Connect mailbox and click 'Sync Billing Emails'.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
     </main>
 
     <!-- Slide-over Drawer for Subscription Details & Approval Gate -->
@@ -318,6 +397,150 @@
         </div>
       </div>
     </aside>
+
+    <!-- Add Subscription Modal Dialog -->
+    <div id="add-sub-modal" class="modal-backdrop" hidden>
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="add-sub-title">
+        <div class="modal-header">
+          <h3 id="add-sub-title" class="modal-title">Track Subscription Manually</h3>
+          <button id="close-add-sub-modal" class="icon-btn close-btn" aria-label="Close modal">×</button>
+        </div>
+        <form id="add-sub-form">
+          <div class="modal-body">
+            <div class="form-group">
+              <label for="manual-service-name">Service / Merchant Name *</label>
+              <input id="manual-service-name" class="form-control" type="text" placeholder="e.g. Netflix, Spotify, OpenAI" required>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="manual-cost">Monthly Cost ($)</label>
+                <input id="manual-cost" class="form-control" type="number" step="0.01" min="0" placeholder="e.g. 15.99">
+              </div>
+              <div class="form-group">
+                <label for="manual-billing-cycle">Billing Interval</label>
+                <select id="manual-billing-cycle" class="form-control">
+                  <option value="monthly">Monthly</option>
+                  <option value="annual">Annual</option>
+                  <option value="quarterly">Quarterly</option>
+                  <option value="weekly">Weekly</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="manual-renewal-date">Next Renewal Date</label>
+                <input id="manual-renewal-date" class="form-control" type="date">
+              </div>
+              <div class="form-group">
+                <label for="manual-last-used">Last Streamed / Used Date</label>
+                <input id="manual-last-used" class="form-control" type="date">
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="manual-category">Category</label>
+                <input id="manual-category" class="form-control" type="text" placeholder="e.g. streaming, software, cloud">
+              </div>
+              <div class="form-group">
+                <label for="manual-status">Status</label>
+                <select id="manual-status" class="form-control">
+                  <option value="active">Active</option>
+                  <option value="unknown">Unknown</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="manual-portal-url">Official Account / Portal URL</label>
+              <input id="manual-portal-url" class="form-control" type="url" placeholder="https://provider.com/account">
+            </div>
+
+            <div class="form-group">
+              <label for="manual-notes">Notes / Reference</label>
+              <textarea id="manual-notes" class="form-control" rows="2" placeholder="e.g. Family plan, registered under work email"></textarea>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" id="cancel-add-sub" class="button secondary">Cancel</button>
+            <button type="submit" id="save-add-sub" class="button primary glow">Save to Inventory</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Edit Subscription Modal Dialog -->
+    <div id="edit-sub-modal" class="modal-backdrop" hidden>
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="edit-sub-title">
+        <div class="modal-header">
+          <h3 id="edit-sub-title" class="modal-title">Edit Subscription Details</h3>
+          <button id="close-edit-sub-modal" class="icon-btn close-btn" aria-label="Close modal">×</button>
+        </div>
+        <form id="edit-sub-form">
+          <input type="hidden" id="edit-sub-id">
+          <div class="modal-body">
+            <div class="form-group">
+              <label for="edit-service-name">Service / Merchant Name</label>
+              <input id="edit-service-name" class="form-control" type="text" required>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="edit-cost">Monthly Cost ($)</label>
+                <input id="edit-cost" class="form-control" type="number" step="0.01" min="0">
+              </div>
+              <div class="form-group">
+                <label for="edit-billing-cycle">Billing Interval</label>
+                <select id="edit-billing-cycle" class="form-control">
+                  <option value="monthly">Monthly</option>
+                  <option value="annual">Annual</option>
+                  <option value="quarterly">Quarterly</option>
+                  <option value="weekly">Weekly</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="edit-renewal-date">Next Renewal Date</label>
+                <input id="edit-renewal-date" class="form-control" type="date">
+              </div>
+              <div class="form-group">
+                <label for="edit-last-used">Last Streamed / Used Date</label>
+                <input id="edit-last-used" class="form-control" type="date">
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="edit-category">Category</label>
+                <input id="edit-category" class="form-control" type="text">
+              </div>
+              <div class="form-group">
+                <label for="edit-status">Status</label>
+                <select id="edit-status" class="form-control">
+                  <option value="active">Active</option>
+                  <option value="unknown">Unknown</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="edit-notes">Notes / Reference</label>
+              <textarea id="edit-notes" class="form-control" rows="2"></textarea>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" id="cancel-edit-sub" class="button secondary">Cancel</button>
+            <button type="submit" id="save-edit-sub" class="button primary glow">Save Changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 
   <script src="/dashboard/app.js?v=2.1"></script>

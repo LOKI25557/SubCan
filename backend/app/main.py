@@ -18,12 +18,18 @@ SAFETY INVARIANTS:
 6. Process-local state limitation: runtime state is held in process-local memory via thread-safe registries.
 """
 
+import backend.app.config
 from datetime import datetime, timezone
+import os
+import re
+import secrets
 import threading
+import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
@@ -51,11 +57,17 @@ from backend.app.models import (
     Approval,
     ApprovalStatus,
     CancellationPlan,
+    CandidateReviewStatus,
     Decision,
+    DiscoverySource,
+    EmailAccountStatus,
     Evidence,
     FinalResultStatus,
     HealthCheckResponse,
     Subscription,
+    SubscriptionCandidate,
+    SubscriptionCreateRequest,
+    SubscriptionUpdateRequest,
     VerificationResult,
     VerificationStatus,
 )
@@ -217,6 +229,18 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+# CORS Configuration
+raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000,http://localhost:3000")
+allowed_origins = [o.strip() for o in raw_origins.split(",") if o.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins if allowed_origins else ["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 @app.middleware("http")
 async def add_no_cache_for_dashboard(request: Request, call_next):
     response = await call_next(request)
@@ -265,11 +289,17 @@ async def custom_http_exception_handler(request: Request, exc: HTTPException):
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    safe_errors = []
+    for err in exc.errors():
+        safe_err = dict(err)
+        if "ctx" in safe_err and isinstance(safe_err["ctx"], dict):
+            safe_err["ctx"] = {k: str(v) for k, v in safe_err["ctx"].items()}
+        safe_errors.append(safe_err)
     envelope = ErrorEnvelope(
         error=ErrorDetail(
             code="VALIDATION_ERROR",
             message="Request schema validation failed.",
-            details={"errors": exc.errors()},
+            details={"errors": safe_errors},
             timestamp=datetime.now(timezone.utc),
         )
     )
@@ -302,6 +332,16 @@ def find_action_context(action_id: str) -> Optional[Tuple[str, str, Subscription
     return None
 
 
+def get_current_user_id(request: Request) -> str:
+    """Extract authenticated user / tenant identity from request headers or query params."""
+    user_id = request.headers.get("X-User-ID") or request.query_params.get("user_id")
+    if user_id and user_id.strip():
+        cleaned = "".join(c for c in user_id.strip() if c.isalnum() or c in ("_", "-"))
+        if cleaned:
+            return cleaned[:50]
+    return "user_default"
+
+
 # ==============================================================================
 # API Endpoints
 # ==============================================================================
@@ -324,6 +364,53 @@ def get_health() -> HealthCheckResponse:
     )
 
 
+@app.get(
+    "/ready",
+    tags=["System"],
+    summary="Readiness Check",
+    description="Validates that database persistence, connector registry, and email subsystem are operational.",
+)
+def get_readiness() -> Dict[str, Any]:
+    """Check readiness of persistence and subsystem dependencies."""
+    from backend.app.database import get_db_session
+    checks = {}
+    is_ready = True
+
+    # 1. Database check
+    try:
+        with get_db_session() as conn:
+            conn.execute("SELECT 1").fetchone()
+            checks["database"] = "ok"
+    except Exception as e:
+        checks["database"] = f"error: {str(e)}"
+        is_ready = False
+
+    # 2. Connector registry check
+    try:
+        from backend.app.connectors import get_default_registry
+        reg = get_default_registry()
+        checks["connectors"] = f"ok ({len(reg.list_connectors())} registered)"
+    except Exception as e:
+        checks["connectors"] = f"error: {str(e)}"
+        is_ready = False
+
+    # 3. Environment & OAuth mode
+    from backend.app.email.oauth import is_live_oauth_configured
+    checks["oauth_mode"] = "live" if is_live_oauth_configured() else "local-demo"
+
+    if not is_ready:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "SERVICE_UNAVAILABLE", "message": "Readiness checks failed", "details": checks},
+        )
+
+    return {
+        "status": "ready",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "checks": checks,
+    }
+
+
 @app.post(
     "/runs",
     response_model=AgentRun,
@@ -337,7 +424,7 @@ def get_health() -> HealthCheckResponse:
     ),
 )
 def create_run(req: CreateRunRequest) -> AgentRun:
-    """Create and initialize a new agent run."""
+    """Create and initialize a new agent run across connectors, email, and manual subscriptions."""
     if not req.subscription_ids:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -353,16 +440,39 @@ def create_run(req: CreateRunRequest) -> AgentRun:
     except Exception:
         subscriptions, evidence_map = load_fixture_data(target_subscription_ids=req.subscription_ids)
 
+    # Check for any subscription IDs stored in SQLite database (manual entry or email discovery)
     found_ids = {s.subscription_id for s in subscriptions}
     missing_ids = set(req.subscription_ids) - found_ids
     if missing_ids:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "code": "BAD_REQUEST",
-                "message": f"Unknown or invalid subscription IDs: {sorted(list(missing_ids))}",
-            },
-        )
+        from backend.app.database import get_subscription_from_db
+        still_missing = []
+        for m_id in sorted(list(missing_ids)):
+            db_sub = get_subscription_from_db(m_id)
+            if db_sub:
+                subscriptions.append(db_sub)
+                if m_id not in evidence_map:
+                    evidence_map[m_id] = []
+                    if db_sub.last_used_at:
+                        evidence_map[m_id].append(
+                            Evidence(
+                                evidence_id=f"ev_usage_{m_id}",
+                                subscription_id=m_id,
+                                evidence_type="usage_history",
+                                excerpt=f"Activity recorded on {db_sub.last_used_at.isoformat()}",
+                                captured_at=db_sub.last_used_at if db_sub.last_used_at.tzinfo else datetime.now(timezone.utc),
+                                confidence=db_sub.confidence or 0.9,
+                            )
+                        )
+            else:
+                still_missing.append(m_id)
+        if still_missing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "BAD_REQUEST",
+                    "message": f"Unknown or invalid subscription IDs: {still_missing}",
+                },
+            )
 
     run, _ = initialize_orchestration_run(
         subscriptions=subscriptions,
@@ -376,20 +486,517 @@ def create_run(req: CreateRunRequest) -> AgentRun:
     "/subscriptions",
     response_model=List[Subscription],
     tags=["Subscriptions"],
-    summary="List available subscriptions",
-    description="Returns the connector-provided subscription records used to start a review run.",
+    summary="List available subscriptions in unified inventory",
+    description="Returns connector-provided, email-discovered, and manually entered subscriptions with optional pagination.",
 )
-def list_subscriptions() -> List[Subscription]:
-    """Expose current connector records for dashboard run selection."""
+def list_subscriptions(
+    request: Request,
+    include_archived: bool = False,
+    status: Optional[str] = None,
+    source: Optional[str] = None,
+    limit: Optional[int] = None,
+    offset: int = 0,
+) -> List[Subscription]:
+    """Expose unified subscription inventory from connectors, email, and manual entries."""
+    user_id = get_current_user_id(request)
     try:
-        subscriptions = fetch_subscriptions()
+        connector_subs = fetch_subscriptions()
     except Exception:
-        subscriptions, _ = load_fixture_data()
-    from backend.app.database import save_subscription
+        connector_subs, _ = load_fixture_data()
+    from backend.app.database import list_subscriptions_from_db, save_subscription
 
-    for subscription in subscriptions:
+    for subscription in connector_subs:
         save_subscription(subscription)
-    return subscriptions
+
+    seen_ids = {s.subscription_id for s in connector_subs}
+    result = list(connector_subs)
+
+    # Include manually created or email-confirmed subscriptions from SQLite for the requesting user
+    db_records = list_subscriptions_from_db(
+        user_id=user_id,
+        include_archived=include_archived,
+    )
+    for s in db_records:
+        if s.subscription_id not in seen_ids and s.discovery_source in ("manual", "email"):
+            seen_ids.add(s.subscription_id)
+            result.append(s)
+
+    if source:
+        result = [s for s in result if (s.discovery_source or "connector") == source]
+    if status:
+        result = [s for s in result if s.status.value == status]
+
+    # Optional pagination
+    if offset > 0:
+        result = result[offset:]
+    if limit is not None and limit > 0:
+        result = result[:limit]
+
+    return result
+
+
+@app.post(
+    "/subscriptions",
+    response_model=Subscription,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Subscriptions"],
+    summary="Create subscription manually",
+    description="Allows users to manually track a subscription not automatically discovered.",
+)
+def create_manual_subscription(req: SubscriptionCreateRequest, request: Request) -> Subscription:
+    """Manually register a new subscription into the unified inventory."""
+    user_id = get_current_user_id(request)
+    import secrets
+    clean_name = re.sub(r"[^a-zA-Z0-9]", "_", req.service_name).lower()
+    sub_id = f"sub_man_{clean_name}_{secrets.token_hex(4)}"
+
+    # Check for potential duplicates conservatively
+    from backend.app.database import list_subscriptions_from_db, save_subscription
+    existing_user_subs = list_subscriptions_from_db(user_id=user_id, include_archived=False)
+    similar = [
+        s for s in existing_user_subs
+        if s.service_name.lower() == req.service_name.strip().lower()
+    ]
+    note_prefix = ""
+    if similar:
+        note_prefix = f"[Notice: Existing subscription '{similar[0].subscription_id}' also found for {req.service_name}] "
+
+    combined_notes = (note_prefix + (req.notes or "")).strip() or None
+
+    sub = Subscription(
+        subscription_id=sub_id,
+        service_name=req.service_name.strip(),
+        status=req.status or SubscriptionStatus.ACTIVE,
+        renewal_date=req.renewal_date,
+        last_used_at=req.last_used_at,
+        monthly_cost=req.monthly_cost,
+        currency=req.currency or "USD",
+        billing_cycle=req.billing_cycle or "monthly",
+        cancellation_terms_url=req.cancellation_terms_url,
+        category=req.category,
+        user_id=user_id,
+        discovery_source=DiscoverySource.MANUAL.value,
+        confidence=1.0,
+        notes=combined_notes,
+        is_archived=False,
+        manual_action_url=req.manual_action_url,
+        manual_action_instructions=req.manual_action_instructions,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    save_subscription(sub)
+    return sub
+
+
+@app.get(
+    "/subscriptions/{subscription_id}",
+    response_model=Subscription,
+    tags=["Subscriptions"],
+    summary="Get single subscription",
+    description="Retrieve detailed record for a specific subscription.",
+)
+def get_single_subscription(subscription_id: str, request: Request) -> Subscription:
+    """Retrieve a subscription by ID."""
+    from backend.app.database import get_subscription_from_db
+    user_id = get_current_user_id(request)
+    sub = get_subscription_from_db(subscription_id)
+    if not sub:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "RESOURCE_NOT_FOUND", "message": f"Subscription '{subscription_id}' not found."},
+        )
+    if user_id != "user_default" and sub.user_id and sub.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "RESOURCE_NOT_FOUND", "message": f"Subscription '{subscription_id}' not found."},
+        )
+    return sub
+
+
+@app.put(
+    "/subscriptions/{subscription_id}",
+    response_model=Subscription,
+    tags=["Subscriptions"],
+    summary="Update subscription details",
+    description="Update permitted details of an existing subscription.",
+)
+def update_subscription(
+    subscription_id: str,
+    req: SubscriptionUpdateRequest,
+    request: Request,
+) -> Subscription:
+    """Update details of an existing subscription."""
+    from backend.app.database import get_subscription_from_db, save_subscription
+    user_id = get_current_user_id(request)
+    sub = get_subscription_from_db(subscription_id)
+    if not sub:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "RESOURCE_NOT_FOUND", "message": f"Subscription '{subscription_id}' not found."},
+        )
+    if user_id != "user_default" and sub.user_id and sub.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "RESOURCE_NOT_FOUND", "message": f"Subscription '{subscription_id}' not found."},
+        )
+
+    data = sub.model_dump()
+    for field, val in req.model_dump(exclude_unset=True).items():
+        if val is not None:
+            data[field] = val
+    data["updated_at"] = datetime.now(timezone.utc)
+    updated_sub = Subscription(**data)
+    save_subscription(updated_sub)
+    return updated_sub
+
+
+@app.delete(
+    "/subscriptions/{subscription_id}",
+    status_code=status.HTTP_200_OK,
+    tags=["Subscriptions"],
+    summary="Archive subscription",
+    description="Safely archives a subscription from active monitoring.",
+)
+def archive_subscription(subscription_id: str, request: Request) -> Dict[str, Any]:
+    """Archive a subscription from active inventory."""
+    from backend.app.database import archive_subscription_in_db, get_subscription_from_db
+    user_id = get_current_user_id(request)
+    sub = get_subscription_from_db(subscription_id)
+    if not sub:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "RESOURCE_NOT_FOUND", "message": f"Subscription '{subscription_id}' not found."},
+        )
+    if user_id != "user_default" and sub.user_id and sub.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "RESOURCE_NOT_FOUND", "message": f"Subscription '{subscription_id}' not found."},
+        )
+    archive_subscription_in_db(subscription_id)
+    return {"archived": True, "status": "archived", "subscription_id": subscription_id}
+
+
+# ==============================================================================
+# Email Discovery Endpoints
+# ==============================================================================
+
+@app.get(
+    "/api/email/oauth/url",
+    tags=["Email Discovery"],
+    summary="Get Google OAuth Authorization URL",
+    description="Generates a Google OAuth authorization URL with PKCE and state protection.",
+)
+def get_email_oauth_url(request: Request) -> Dict[str, Any]:
+    """Return OAuth authorization URL and state token."""
+    from backend.app.email import generate_oauth_url, is_live_oauth_configured
+    user_id = get_current_user_id(request)
+    url, state = generate_oauth_url(user_id=user_id)
+    is_live = is_live_oauth_configured()
+    return {
+        "url": url,
+        "state": state,
+        "is_live_configured": is_live,
+        "mode": "live" if is_live else "demo",
+        "provider": "gmail",
+    }
+
+
+@app.get(
+    "/api/email/oauth/callback",
+    tags=["Email Discovery"],
+    summary="Handle Google OAuth Callback",
+    description="Exchanges authorization code for tokens and registers connected email account.",
+)
+def handle_email_oauth_callback(
+    request: Request,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+) -> Any:
+    """Exchange OAuth code and connect mailbox."""
+    from backend.app.email import exchange_code_for_tokens
+    user_id = get_current_user_id(request)
+
+    if error:
+        accept = request.headers.get("accept", "")
+        if "text/html" in accept:
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(
+                url=f"/dashboard/#email-error?error={urllib.parse.quote(error)}",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "OAUTH_DENIED", "message": f"Google authorization denied or failed: {error}"},
+        )
+
+    if not code or not state:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "INVALID_CALLBACK", "message": "Missing 'code' or 'state' parameter in OAuth callback."},
+        )
+
+    try:
+        account_status = exchange_code_for_tokens(code=code, state=state, user_id=user_id, error=error)
+        accept = request.headers.get("accept", "")
+        if "text/html" in accept:
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="/dashboard/#email-connected", status_code=status.HTTP_303_SEE_OTHER)
+        res = account_status.model_dump()
+        res["connected"] = account_status.is_connected
+        res["message"] = f"Connected {account_status.email_address} for user {user_id}"
+        return res
+    except Exception as e:
+        accept = request.headers.get("accept", "")
+        if "text/html" in accept:
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(
+                url=f"/dashboard/#email-error?error={urllib.parse.quote(str(e))}",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "OAUTH_ERROR", "message": str(e)},
+        )
+
+
+@app.get(
+    "/api/email/status",
+    response_model=EmailAccountStatus,
+    tags=["Email Discovery"],
+    summary="Get Connected Email Account Status",
+    description="Returns connection status, sync status, and candidate count.",
+)
+def get_email_account_status(request: Request) -> EmailAccountStatus:
+    """Get current email account connection status."""
+    from backend.app.database import get_email_account
+    from backend.app.config import is_live_oauth_configured
+    user_id = get_current_user_id(request)
+    account = get_email_account(user_id)
+    if account:
+        return account
+    is_live = is_live_oauth_configured()
+    return EmailAccountStatus(
+        user_id=user_id,
+        is_connected=False,
+        is_live_configured=is_live,
+        mode="live" if is_live else "demo",
+    )
+
+
+@app.post(
+    "/api/email/disconnect",
+    tags=["Email Discovery"],
+    summary="Disconnect Email Account",
+    description="Revokes stored OAuth credentials and disconnects mailbox.",
+)
+def disconnect_email(request: Request) -> Dict[str, Any]:
+    """Disconnect email account and revoke tokens."""
+    from backend.app.email import disconnect_account
+    user_id = get_current_user_id(request)
+    disconnect_account(user_id)
+    return {"disconnected": True, "status": "disconnected", "user_id": user_id}
+
+
+@app.post(
+    "/api/email/sync",
+    tags=["Email Discovery"],
+    summary="Synchronize Billing Emails",
+    description="Searches mailbox for billing messages and extracts candidate subscriptions.",
+)
+def sync_email(request: Request, max_messages: int = 50) -> Dict[str, Any]:
+    """Execute targeted mailbox search and candidate extraction."""
+    from backend.app.email import sync_user_mailbox
+    user_id = get_current_user_id(request)
+    try:
+        candidates = sync_user_mailbox(user_id=user_id, max_messages=max_messages)
+        return {
+            "synced_count": len(candidates),
+            "candidates": [c.model_dump() for c in candidates],
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "EMAIL_NOT_CONNECTED", "message": str(e)},
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "EMAIL_SYNC_ERROR", "message": str(e)},
+        )
+
+
+@app.get(
+    "/api/email/candidates",
+    response_model=List[SubscriptionCandidate],
+    tags=["Email Discovery"],
+    summary="List Discovered Candidates",
+    description="Returns subscription candidates extracted from emails for review.",
+)
+def list_candidates(
+    request: Request,
+    review_status: Optional[str] = None,
+) -> List[SubscriptionCandidate]:
+    """List subscription candidates awaiting review."""
+    from backend.app.database import list_subscription_candidates
+    user_id = get_current_user_id(request)
+    return list_subscription_candidates(user_id=user_id, review_status=review_status)
+
+
+@app.post(
+    "/api/email/candidates/{candidate_id}/confirm",
+    response_model=Subscription,
+    tags=["Email Discovery"],
+    summary="Confirm Candidate Into Inventory",
+    description="Promotes an email candidate into the unified subscription inventory.",
+)
+def confirm_candidate(candidate_id: str, request: Request) -> Subscription:
+    """Confirm candidate and promote to active inventory."""
+    from backend.app.email import confirm_candidate_into_inventory
+    user_id = get_current_user_id(request)
+    try:
+        sub, _ = confirm_candidate_into_inventory(candidate_id=candidate_id, user_id=user_id)
+        return sub
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "CANDIDATE_NOT_FOUND", "message": str(e)},
+        )
+
+
+@app.post(
+    "/api/email/candidates/{candidate_id}/dismiss",
+    tags=["Email Discovery"],
+    summary="Dismiss Candidate",
+    description="Dismisses a false-positive candidate subscription.",
+)
+def dismiss_candidate_endpoint(candidate_id: str, request: Request) -> Dict[str, Any]:
+    """Dismiss a candidate subscription."""
+    from backend.app.email import dismiss_candidate
+    user_id = get_current_user_id(request)
+    success = dismiss_candidate(candidate_id=candidate_id, user_id=user_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "CANDIDATE_NOT_FOUND", "message": f"Candidate '{candidate_id}' not found."},
+        )
+    return {"status": "dismissed", "candidate_id": candidate_id}
+
+
+# ==============================================================================
+# User Privacy & Compliance Endpoints (GDPR / CCPA)
+# ==============================================================================
+
+@app.get(
+    "/api/user/export",
+    tags=["User Privacy & Compliance"],
+    summary="Export User Account Data",
+    description="Exports all user-scoped subscriptions, email metadata, and candidate records per GDPR/CCPA portability requirements.",
+)
+def export_user_account_data(request: Request) -> Dict[str, Any]:
+    """Export user data for data portability compliance."""
+    from backend.app.database import export_user_data
+    user_id = get_current_user_id(request)
+    return export_user_data(user_id=user_id)
+
+
+@app.delete(
+    "/api/user/data",
+    tags=["User Privacy & Compliance"],
+    summary="Purge User Account Data",
+    description="Purges all user-scoped subscriptions, candidate records, and stored OAuth tokens for account deletion.",
+)
+def purge_user_account_data(request: Request) -> Dict[str, Any]:
+    """Purge all user data for right-to-be-forgotten compliance."""
+    from backend.app.database import delete_user_data
+    user_id = get_current_user_id(request)
+    return delete_user_data(user_id=user_id)
+
+
+# ==============================================================================
+# Restricted Website & Manual Action Guides
+# ==============================================================================
+
+@app.get(
+    "/services/{service_id}/manual-guide",
+    tags=["Connectors"],
+    summary="Get Manual Action Instructions for Restricted Services",
+    description="Returns official cancellation portal URL and step-by-step instructions when automation is restricted.",
+)
+def get_manual_action_guide(service_id: str) -> Dict[str, Any]:
+    """Provide safe manual fallback instructions for providers that block automation."""
+    s_key = service_id.lower().replace("-", "_")
+    service_guides = {
+        "bloomberg": {
+            "service_name": "Bloomberg Terminal / Professional",
+            "official_url": "https://service.bloomberg.com/portal/subscriptions",
+            "requires_manual_action": True,
+            "restricted_reason": "Bloomberg requires dedicated corporate representative contact or physical terminal decommission.",
+            "steps": [
+                "Log in to the Bloomberg Professional Client Portal via authorized corporate credentials.",
+                "Navigate to 'Account Administration' -> 'Subscription & Terminals'.",
+                "Submit a terminal decommission request to your dedicated Bloomberg account executive.",
+                "Confirm receipt of the written contract termination confirmation.",
+            ],
+            "data_loss_warning": "Immediate loss of historical terminal logs, specialized analytics, and Bloomberg Vault archives.",
+        },
+        "adobe": {
+            "service_name": "Adobe Creative Cloud",
+            "official_url": "https://account.adobe.com/plans",
+            "requires_manual_action": True,
+            "restricted_reason": "Adobe restricts automated cancellation via CAPTCHA and early-termination fee disclosures.",
+            "steps": [
+                "Log into your Adobe Account Management console at account.adobe.com/plans.",
+                "Find your active Creative Cloud plan and select 'Manage plan'.",
+                "Click 'Cancel your plan' and follow the step-by-step confirmation prompts.",
+                "Review any applicable early cancellation fees before finalizing.",
+            ],
+            "data_loss_warning": "Cloud storage allocation drops to 2 GB; files exceeding this limit may be deleted after 30 days.",
+        },
+        "wsj": {
+            "service_name": "The Wall Street Journal",
+            "official_url": "https://customercenter.wsj.com/cancel",
+            "requires_manual_action": True,
+            "restricted_reason": "WSJ enforces telephone or chat-based customer retention flow.",
+            "steps": [
+                "Visit customercenter.wsj.com and sign into your subscriber profile.",
+                "Select 'Manage Subscription' -> 'Cancel Online' (where available) or initiate live support chat.",
+                "Decline retention offers and explicitly state your request to cancel renewal.",
+                "Save the confirmation email and cancellation reference code.",
+            ],
+            "data_loss_warning": "Immediate loss of subscriber-only archives, newsletters, and digital edition access.",
+        },
+        "gym_in_person": {
+            "service_name": "Physical Health Club / Gym",
+            "official_url": "https://mygym.example.com/membership",
+            "requires_manual_action": True,
+            "restricted_reason": "Facility requires certified mail notice or in-person cancellation form.",
+            "steps": [
+                "Obtain the facility's official Membership Cancellation Request form.",
+                "Complete the form including your member barcode and effective date.",
+                "Deliver in person to the club manager or send via USPS Certified Mail with return receipt.",
+                "Retain proof of delivery and your postmarked receipt.",
+            ],
+            "data_loss_warning": "Locker clearance required within 48 hours; key fob access deactivated at cycle end.",
+        },
+    }
+
+    if s_key in service_guides:
+        return service_guides[s_key]
+
+    return {
+        "service_name": service_id,
+        "official_url": f"https://www.{service_id.lower()}.com/account",
+        "requires_manual_action": True,
+        "restricted_reason": "Automated cancellation not supported by provider API.",
+        "steps": [
+            f"Navigate to the official {service_id} account management portal.",
+            "Log in using your verified registered credentials.",
+            "Go to 'Subscription' or 'Billing' settings and choose 'Cancel Subscription'.",
+            "Complete on-screen confirmation steps and retain the cancellation receipt number.",
+        ],
+        "data_loss_warning": "Service access and stored cloud resources will terminate at current billing cycle end.",
+    }
 
 
 @app.get(

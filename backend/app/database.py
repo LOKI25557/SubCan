@@ -8,13 +8,21 @@ validated JSON snapshots so a run can be restored after a process restart.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import date, datetime, timezone
 import json
 import os
 from pathlib import Path
 import sqlite3
 from typing import Any, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING
 
-from backend.app.models import ActionResult, AgentRun, Subscription
+from backend.app.models import (
+    ActionResult,
+    AgentRun,
+    CandidateReviewStatus,
+    EmailAccountStatus,
+    Subscription,
+    SubscriptionCandidate,
+)
 
 if TYPE_CHECKING:
     from backend.app.agent import SubscriptionRunState
@@ -74,6 +82,11 @@ def initialize_schema(connection: Optional[sqlite3.Connection] = None) -> None:
             service_name TEXT NOT NULL,
             status TEXT NOT NULL,
             payload_json TEXT NOT NULL,
+            user_id TEXT NOT NULL DEFAULT 'user_default',
+            discovery_source TEXT NOT NULL DEFAULT 'connector',
+            category TEXT,
+            is_archived INTEGER NOT NULL DEFAULT 0,
+            notes TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
@@ -116,6 +129,43 @@ def initialize_schema(connection: Optional[sqlite3.Connection] = None) -> None:
             details TEXT,
             executed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS email_accounts (
+            user_id TEXT PRIMARY KEY,
+            email_address TEXT,
+            is_connected INTEGER NOT NULL DEFAULT 0,
+            provider TEXT NOT NULL DEFAULT 'gmail',
+            scopes_json TEXT NOT NULL DEFAULT '[]',
+            refresh_token_encrypted TEXT,
+            access_token_encrypted TEXT,
+            token_expires_at TEXT,
+            last_synced_at TEXT,
+            sync_status TEXT NOT NULL DEFAULT 'idle',
+            error_message TEXT,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS subscription_candidates (
+            candidate_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            merchant_name TEXT NOT NULL,
+            product_name TEXT,
+            estimated_cost REAL,
+            currency TEXT DEFAULT 'USD',
+            billing_interval TEXT DEFAULT 'monthly',
+            detected_renewal_date TEXT,
+            detected_last_used TEXT,
+            review_status TEXT NOT NULL DEFAULT 'pending',
+            confidence REAL DEFAULT 0.8,
+            source_message_id TEXT,
+            source_subject TEXT,
+            source_sender TEXT,
+            source_date TEXT,
+            email_snippet TEXT,
+            cancellation_signal INTEGER DEFAULT 0,
+            notes TEXT,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
         CREATE INDEX IF NOT EXISTS idx_run_subscriptions_status
             ON run_subscriptions(final_status);
@@ -123,8 +173,30 @@ def initialize_schema(connection: Optional[sqlite3.Connection] = None) -> None:
             ON audit_events(subscription_id, event_at);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_action_records_idempotency
             ON action_records(idempotency_key) WHERE idempotency_key IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_candidates_user_review
+            ON subscription_candidates(user_id, review_status);
         """
     )
+    # Lightweight schema migration for pre-existing subscriptions table
+    try:
+        cursor = connection.execute("PRAGMA table_info(subscriptions)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if "user_id" not in cols:
+            connection.execute("ALTER TABLE subscriptions ADD COLUMN user_id TEXT NOT NULL DEFAULT 'user_default'")
+        if "discovery_source" not in cols:
+            connection.execute("ALTER TABLE subscriptions ADD COLUMN discovery_source TEXT NOT NULL DEFAULT 'connector'")
+        if "category" not in cols:
+            connection.execute("ALTER TABLE subscriptions ADD COLUMN category TEXT")
+        if "is_archived" not in cols:
+            connection.execute("ALTER TABLE subscriptions ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0")
+        if "notes" not in cols:
+            connection.execute("ALTER TABLE subscriptions ADD COLUMN notes TEXT")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_subscriptions_user_archived ON subscriptions(user_id, is_archived)"
+        )
+    except Exception:
+        pass
+
     if owns_connection:
         connection.commit()
         connection.close()
@@ -285,16 +357,24 @@ def list_audit_events(run_id: str) -> list[dict]:
 
 
 def save_subscription(subscription: Subscription) -> None:
-    """Persist a standalone subscription record."""
+    """Persist a standalone subscription record with full metadata."""
     with get_db_session() as connection:
         connection.execute(
             """
-            INSERT INTO subscriptions(subscription_id, service_name, status, payload_json)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO subscriptions(
+                subscription_id, service_name, status, payload_json,
+                user_id, discovery_source, category, is_archived, notes, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(subscription_id) DO UPDATE SET
                 service_name=excluded.service_name,
                 status=excluded.status,
                 payload_json=excluded.payload_json,
+                user_id=excluded.user_id,
+                discovery_source=excluded.discovery_source,
+                category=excluded.category,
+                is_archived=excluded.is_archived,
+                notes=excluded.notes,
                 updated_at=CURRENT_TIMESTAMP
             """,
             (
@@ -302,8 +382,311 @@ def save_subscription(subscription: Subscription) -> None:
                 subscription.service_name,
                 subscription.status.value,
                 subscription.model_dump_json(),
+                subscription.user_id or "user_default",
+                subscription.discovery_source or "connector",
+                subscription.category,
+                1 if subscription.is_archived else 0,
+                subscription.notes,
             ),
         )
+
+
+def get_subscription_from_db(
+    subscription_id: str, user_id: Optional[str] = None
+) -> Optional[Subscription]:
+    """Retrieve a single subscription from SQLite store."""
+    with get_db_session() as connection:
+        query = "SELECT payload_json FROM subscriptions WHERE subscription_id = ?"
+        params: List[Any] = [subscription_id]
+        if user_id:
+            query += " AND user_id = ?"
+            params.append(user_id)
+        row = connection.execute(query, params).fetchone()
+        if not row:
+            return None
+        return Subscription.model_validate_json(row["payload_json"])
+
+
+def list_subscriptions_from_db(
+    user_id: Optional[str] = None,
+    include_archived: bool = False,
+    status: Optional[str] = None,
+    source: Optional[str] = None,
+) -> List[Subscription]:
+    """Retrieve subscriptions from SQLite store with optional filtering."""
+    with get_db_session() as connection:
+        clauses = []
+        params: List[Any] = []
+        if user_id:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        if not include_archived:
+            clauses.append("is_archived = 0")
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if source:
+            clauses.append("discovery_source = ?")
+            params.append(source)
+
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        query = f"SELECT payload_json FROM subscriptions {where_sql} ORDER BY created_at DESC"
+        rows = connection.execute(query, params).fetchall()
+        return [Subscription.model_validate_json(r["payload_json"]) for r in rows]
+
+
+def archive_subscription_in_db(
+    subscription_id: str, user_id: Optional[str] = None
+) -> bool:
+    """Mark a subscription as archived."""
+    sub = get_subscription_from_db(subscription_id, user_id=user_id)
+    if not sub:
+        return False
+    sub.is_archived = True
+    save_subscription(sub)
+    return True
+
+
+def delete_subscription_in_db(
+    subscription_id: str, user_id: Optional[str] = None
+) -> bool:
+    """Hard-delete a subscription if needed (e.g. for test cleanup)."""
+    with get_db_session() as connection:
+        query = "DELETE FROM subscriptions WHERE subscription_id = ?"
+        params: List[Any] = [subscription_id]
+        if user_id:
+            query += " AND user_id = ?"
+            params.append(user_id)
+        cursor = connection.execute(query, params)
+        return cursor.rowcount > 0
+
+
+def save_email_account(
+    account: EmailAccountStatus,
+    refresh_token: Optional[str] = None,
+    access_token: Optional[str] = None,
+    expires_at: Optional[datetime] = None,
+) -> None:
+    """Persist or update connected email account status and credentials."""
+    with get_db_session() as connection:
+        connection.execute(
+            """
+            INSERT INTO email_accounts(
+                user_id, email_address, is_connected, provider, scopes_json,
+                refresh_token_encrypted, access_token_encrypted, token_expires_at,
+                last_synced_at, sync_status, error_message, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id) DO UPDATE SET
+                email_address=excluded.email_address,
+                is_connected=excluded.is_connected,
+                provider=excluded.provider,
+                scopes_json=excluded.scopes_json,
+                refresh_token_encrypted=COALESCE(excluded.refresh_token_encrypted, email_accounts.refresh_token_encrypted),
+                access_token_encrypted=COALESCE(excluded.access_token_encrypted, email_accounts.access_token_encrypted),
+                token_expires_at=COALESCE(excluded.token_expires_at, email_accounts.token_expires_at),
+                last_synced_at=excluded.last_synced_at,
+                sync_status=excluded.sync_status,
+                error_message=excluded.error_message,
+                updated_at=CURRENT_TIMESTAMP
+            """,
+            (
+                account.user_id,
+                account.email_address,
+                1 if account.is_connected else 0,
+                account.provider,
+                json.dumps(account.scopes),
+                refresh_token,
+                access_token,
+                expires_at.isoformat() if expires_at else None,
+                account.last_synced_at.isoformat() if account.last_synced_at else None,
+                account.sync_status,
+                account.error_message,
+            ),
+        )
+
+
+def get_email_account(user_id: str = "user_default") -> Optional[EmailAccountStatus]:
+    """Retrieve connected email account for user with truthful mode attribution."""
+    from backend.app.config import is_live_oauth_configured
+    live_configured = is_live_oauth_configured()
+
+    with get_db_session() as connection:
+        row = connection.execute(
+            "SELECT * FROM email_accounts WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        if not row:
+            return EmailAccountStatus(
+                user_id=user_id,
+                is_connected=False,
+                is_live_configured=live_configured,
+                mode="live" if live_configured else "demo",
+            )
+        candidate_count = connection.execute(
+            "SELECT COUNT(*) as cnt FROM subscription_candidates WHERE user_id = ? AND review_status = 'pending'",
+            (user_id,),
+        ).fetchone()["cnt"]
+
+        is_connected = bool(row["is_connected"])
+        has_tokens = bool(row["access_token_encrypted"] or row["refresh_token_encrypted"])
+        token_str = str(row["access_token_encrypted"] or "")
+        is_mock_token = token_str.startswith("mock_") or token_str.startswith("test_")
+        stored_email = row["email_address"]
+
+        # An account without credentials cannot be legitimately connected
+        if not has_tokens:
+            is_connected = False
+
+        account_mode = "demo"
+        if is_connected and live_configured and not is_mock_token and not (stored_email or "").endswith("@subcan-demo.com"):
+            account_mode = "live"
+        elif not is_connected and live_configured:
+            account_mode = "live"
+
+        email_addr = stored_email if is_connected else None
+
+        return EmailAccountStatus(
+            user_id=row["user_id"],
+            email_address=email_addr,
+            is_connected=is_connected,
+            provider=row["provider"],
+            scopes=json.loads(row["scopes_json"] or "[]"),
+            last_synced_at=datetime.fromisoformat(row["last_synced_at"]) if row["last_synced_at"] else None,
+            sync_status=row["sync_status"],
+            candidate_count=candidate_count,
+            error_message=row["error_message"],
+            is_live_configured=live_configured,
+            mode=account_mode,
+        )
+
+
+def get_email_tokens(user_id: str = "user_default") -> Optional[Dict[str, Any]]:
+    """Retrieve stored OAuth tokens for internal API communication."""
+    with get_db_session() as connection:
+        row = connection.execute(
+            "SELECT refresh_token_encrypted, access_token_encrypted, token_expires_at FROM email_accounts WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "refresh_token": row["refresh_token_encrypted"],
+            "access_token": row["access_token_encrypted"],
+            "expires_at": row["token_expires_at"],
+        }
+
+
+def disconnect_email_account(user_id: str = "user_default") -> bool:
+    """Disconnect email account, delete tokens, and reset sync status."""
+    with get_db_session() as connection:
+        connection.execute(
+            """
+            UPDATE email_accounts SET
+                is_connected = 0,
+                refresh_token_encrypted = NULL,
+                access_token_encrypted = NULL,
+                token_expires_at = NULL,
+                sync_status = 'idle',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        )
+        return True
+
+
+def save_subscription_candidate(candidate: SubscriptionCandidate) -> None:
+    """Save an email-extracted candidate subscription."""
+    with get_db_session() as connection:
+        connection.execute(
+            """
+            INSERT INTO subscription_candidates(
+                candidate_id, user_id, merchant_name, product_name,
+                estimated_cost, currency, billing_interval, detected_renewal_date,
+                detected_last_used, review_status, confidence, source_message_id,
+                source_subject, source_sender, source_date, email_snippet,
+                cancellation_signal, notes, payload_json, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(candidate_id) DO UPDATE SET
+                review_status=CASE
+                    WHEN subscription_candidates.review_status IN ('confirmed', 'dismissed')
+                    THEN subscription_candidates.review_status
+                    ELSE excluded.review_status
+                END,
+                notes=excluded.notes,
+                payload_json=excluded.payload_json,
+                updated_at=CURRENT_TIMESTAMP
+            """,
+            (
+                candidate.candidate_id,
+                candidate.user_id,
+                candidate.merchant_name,
+                candidate.product_name,
+                candidate.estimated_cost,
+                candidate.currency,
+                candidate.billing_interval,
+                candidate.detected_renewal_date.isoformat() if candidate.detected_renewal_date else None,
+                candidate.detected_last_used.isoformat() if candidate.detected_last_used else None,
+                candidate.review_status.value if isinstance(candidate.review_status, CandidateReviewStatus) else candidate.review_status,
+                candidate.confidence,
+                candidate.source_message_id,
+                candidate.source_subject,
+                candidate.source_sender,
+                candidate.source_date.isoformat() if candidate.source_date else None,
+                candidate.email_snippet,
+                1 if candidate.cancellation_signal else 0,
+                candidate.notes,
+                candidate.model_dump_json(),
+            ),
+        )
+
+
+def list_subscription_candidates(
+    user_id: str = "user_default",
+    review_status: Optional[str] = None,
+) -> List[SubscriptionCandidate]:
+    """List subscription candidates for user review."""
+    with get_db_session() as connection:
+        query = "SELECT payload_json FROM subscription_candidates WHERE user_id = ?"
+        params: List[Any] = [user_id]
+        if review_status:
+            query += " AND review_status = ?"
+            params.append(review_status)
+        query += " ORDER BY created_at DESC"
+        rows = connection.execute(query, params).fetchall()
+        return [SubscriptionCandidate.model_validate_json(r["payload_json"]) for r in rows]
+
+
+def get_subscription_candidate(
+    candidate_id: str, user_id: Optional[str] = None
+) -> Optional[SubscriptionCandidate]:
+    """Retrieve single subscription candidate."""
+    with get_db_session() as connection:
+        query = "SELECT payload_json FROM subscription_candidates WHERE candidate_id = ?"
+        params: List[Any] = [candidate_id]
+        if user_id:
+            query += " AND user_id = ?"
+            params.append(user_id)
+        row = connection.execute(query, params).fetchone()
+        if not row:
+            return None
+        return SubscriptionCandidate.model_validate_json(row["payload_json"])
+
+
+def update_candidate_status(
+    candidate_id: str,
+    status: CandidateReviewStatus,
+    user_id: Optional[str] = None,
+) -> bool:
+    """Update candidate review state."""
+    cand = get_subscription_candidate(candidate_id, user_id=user_id)
+    if not cand:
+        return False
+    cand.review_status = status
+    save_subscription_candidate(cand)
+    return True
+
 
 
 def save_action_record(
@@ -409,3 +792,66 @@ def list_test_results() -> List[Dict[str, Any]]:
             return [dict(row) for row in rows]
     except Exception:
         return []
+
+
+def export_user_data(user_id: str) -> Dict[str, Any]:
+    """Export all user-scoped data for portability and privacy compliance (GDPR/CCPA)."""
+    with get_db_session() as connection:
+        # Subscriptions
+        sub_rows = connection.execute(
+            "SELECT payload_json FROM subscriptions WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
+        subscriptions = [json.loads(r["payload_json"]) for r in sub_rows]
+
+        # Discovered Candidates
+        cand_rows = connection.execute(
+            "SELECT payload_json FROM subscription_candidates WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
+        candidates = [json.loads(r["payload_json"]) for r in cand_rows]
+
+        # Email Account (redacting tokens)
+        acct_row = connection.execute(
+            "SELECT user_id, email_address, is_connected, provider, scopes_json, last_synced_at, sync_status, error_message, updated_at FROM email_accounts WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        email_account = None
+        if acct_row:
+            email_account = {
+                "user_id": acct_row["user_id"],
+                "email_address": acct_row["email_address"],
+                "is_connected": bool(acct_row["is_connected"]),
+                "provider": acct_row["provider"],
+                "scopes": json.loads(acct_row["scopes_json"]) if acct_row["scopes_json"] else [],
+                "last_synced_at": acct_row["last_synced_at"],
+                "sync_status": acct_row["sync_status"],
+                "error_message": acct_row["error_message"],
+                "updated_at": acct_row["updated_at"],
+            }
+
+        return {
+            "user_id": user_id,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "subscriptions": subscriptions,
+            "candidates": candidates,
+            "email_account": email_account,
+        }
+
+
+def delete_user_data(user_id: str) -> Dict[str, Any]:
+    """Purge all user-scoped subscriptions, candidates, and tokens for account deletion."""
+    with get_db_session() as connection:
+        # 1. Delete candidates
+        connection.execute("DELETE FROM subscription_candidates WHERE user_id = ?", (user_id,))
+        # 2. Delete subscriptions
+        connection.execute("DELETE FROM subscriptions WHERE user_id = ?", (user_id,))
+        # 3. Disconnect email account & delete tokens
+        connection.execute("DELETE FROM email_accounts WHERE user_id = ?", (user_id,))
+
+        return {
+            "deleted": True,
+            "user_id": user_id,
+            "deleted_at": datetime.now(timezone.utc).isoformat(),
+        }
+

@@ -70,6 +70,20 @@ class FinalResultStatus(str, Enum):
     PENDING = "pending"
 
 
+class DiscoverySource(str, Enum):
+    """Origin of a subscription record."""
+    CONNECTOR = "connector"
+    EMAIL = "email"
+    MANUAL = "manual"
+
+
+class CandidateReviewStatus(str, Enum):
+    """Review lifecycle status for an email-discovered subscription candidate."""
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    DISMISSED = "dismissed"
+
+
 # ==============================================================================
 # Shared Domain Models
 # ==============================================================================
@@ -135,6 +149,141 @@ class Subscription(BaseModel):
         default=False,
         description="Flag indicating the provider offers a pause alternative."
     )
+    user_id: Optional[str] = Field(
+        default="user_default",
+        description="Tenant or user identifier owning this subscription."
+    )
+    category: Optional[str] = Field(
+        default=None,
+        description="Subscription category (e.g., 'streaming', 'cloud', 'fitness')."
+    )
+    discovery_source: Optional[str] = Field(
+        default="connector",
+        description="Source provenance: 'connector', 'email', or 'manual'."
+    )
+    confidence: Optional[float] = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Confidence score of extracted or supplied details."
+    )
+    notes: Optional[str] = Field(
+        default=None,
+        description="User or system notes associated with this subscription."
+    )
+    is_archived: bool = Field(
+        default=False,
+        description="Whether this subscription is archived from active inventory."
+    )
+    manual_action_url: Optional[str] = Field(
+        default=None,
+        description="Official account or cancellation portal URL for manual workflows."
+    )
+    manual_action_instructions: Optional[str] = Field(
+        default=None,
+        description="Human-readable step-by-step instructions for manual cancellation."
+    )
+    created_at: Optional[datetime] = Field(
+        default=None,
+        description="Timestamp when subscription was first recorded."
+    )
+    updated_at: Optional[datetime] = Field(
+        default=None,
+        description="Timestamp of last update."
+    )
+
+
+class SubscriptionCreateRequest(BaseModel):
+    """Payload for user manual creation of a subscription in inventory."""
+    model_config = ConfigDict(extra="forbid")
+
+    service_name: str = Field(..., min_length=1, max_length=100)
+    monthly_cost: Optional[float] = Field(default=None, ge=0.0)
+    currency: Optional[str] = Field(default="USD", max_length=5)
+    billing_cycle: Optional[str] = Field(default="monthly", max_length=20)
+    renewal_date: Optional[date] = None
+    last_used_at: Optional[datetime] = None
+    category: Optional[str] = Field(default=None, max_length=50)
+    status: Optional[SubscriptionStatus] = SubscriptionStatus.ACTIVE
+    notes: Optional[str] = Field(default=None, max_length=1000)
+    cancellation_terms_url: Optional[str] = None
+    manual_action_url: Optional[str] = None
+    manual_action_instructions: Optional[str] = None
+
+    @field_validator("service_name")
+    @classmethod
+    def validate_service_name(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Service name must not be blank.")
+        return v.strip()
+
+
+class SubscriptionUpdateRequest(BaseModel):
+    """Payload for user updating permitted subscription details."""
+    model_config = ConfigDict(extra="forbid")
+
+    service_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    monthly_cost: Optional[float] = Field(default=None, ge=0.0)
+    currency: Optional[str] = Field(default=None, max_length=5)
+    billing_cycle: Optional[str] = Field(default=None, max_length=20)
+    renewal_date: Optional[date] = None
+    last_used_at: Optional[datetime] = None
+    status: Optional[SubscriptionStatus] = None
+    category: Optional[str] = Field(default=None, max_length=50)
+    notes: Optional[str] = Field(default=None, max_length=1000)
+    is_archived: Optional[bool] = None
+    manual_action_url: Optional[str] = None
+    manual_action_instructions: Optional[str] = None
+
+
+class SubscriptionCandidate(BaseModel):
+    """Discovered candidate subscription extracted from billing emails."""
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str
+    user_id: str = "user_default"
+    merchant_name: str
+    product_name: Optional[str] = None
+    estimated_cost: Optional[float] = None
+    currency: Optional[str] = "USD"
+    billing_interval: Optional[str] = "monthly"
+    detected_renewal_date: Optional[date] = None
+    detected_last_used: Optional[datetime] = None
+    review_status: CandidateReviewStatus = CandidateReviewStatus.PENDING
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+    source_message_id: Optional[str] = None
+    source_subject: Optional[str] = None
+    source_sender: Optional[str] = None
+    source_date: Optional[datetime] = None
+    email_snippet: Optional[str] = None
+    cancellation_signal: bool = False
+    notes: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class EmailAccountStatus(BaseModel):
+    """Status model for connected email provider account."""
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str = "user_default"
+    email_address: Optional[str] = None
+    is_connected: bool = False
+    connected: bool = False
+    provider: str = "gmail"
+    scopes: List[str] = Field(default_factory=list)
+    last_synced_at: Optional[datetime] = None
+    sync_status: str = "idle"
+    candidate_count: int = 0
+    error_message: Optional[str] = None
+    is_live_configured: bool = False
+    mode: str = "demo"
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.is_connected and not self.connected:
+            object.__setattr__(self, "connected", True)
+        elif self.connected and not self.is_connected:
+            object.__setattr__(self, "is_connected", True)
+
 
 
 class Evidence(BaseModel):
