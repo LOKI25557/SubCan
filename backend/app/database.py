@@ -10,11 +10,12 @@ from __future__ import annotations
 from contextlib import contextmanager
 import json
 import os
+from datetime import date
 from pathlib import Path
 import sqlite3
 from typing import Any, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING
 
-from backend.app.models import ActionResult, AgentRun, Subscription
+from backend.app.models import ActionResult, AgentRun, Subscription, SubscriptionStatus
 
 if TYPE_CHECKING:
     from backend.app.agent import SubscriptionRunState
@@ -497,14 +498,274 @@ def load_gmail_candidates(
         return [dict(row) for row in rows]
 
 
-def confirm_gmail_candidate(message_id: str, user_id: str) -> bool:
-    """Mark a Gmail billing candidate as user-confirmed.
+def load_all_subscriptions() -> List[Subscription]:
+    """Load all persisted subscriptions from database."""
+    with get_db_session() as connection:
+        rows = connection.execute(
+            "SELECT payload_json FROM subscriptions ORDER BY service_name"
+        ).fetchall()
+        return [Subscription.model_validate_json(row["payload_json"]) for row in rows]
 
-    Returns True if a record was updated, False if not found.
+
+def confirm_gmail_candidate(message_id: str, user_id: str) -> bool:
+    """Mark a Gmail billing candidate as user-confirmed and promote to subscription inventory.
+
+    Returns True if found and updated/confirmed, False if not found.
+    Handles duplicate confirmations safely and idempotently.
     """
     with get_db_session() as connection:
-        cursor = connection.execute(
-            "UPDATE gmail_candidates SET confirmed = 1 WHERE message_id = ? AND user_id = ?",
+        row = connection.execute(
+            """
+            SELECT message_id, thread_id, subject, sender, date_header,
+                   provider_name, amount, currency, billing_date,
+                   body_preview, confirmed, extracted_at
+            FROM gmail_candidates
+            WHERE message_id = ? AND user_id = ?
+            """,
             (message_id, user_id),
-        )
-        return cursor.rowcount > 0
+        ).fetchone()
+        if not row:
+            return False
+
+        candidate = dict(row)
+        if not candidate["confirmed"]:
+            connection.execute(
+                "UPDATE gmail_candidates SET confirmed = 1 WHERE message_id = ? AND user_id = ?",
+                (message_id, user_id),
+            )
+
+        # Promote to subscription inventory if not already present
+        sub_id = f"sub_gmail_{message_id}"
+        existing = connection.execute(
+            "SELECT subscription_id FROM subscriptions WHERE subscription_id = ?",
+            (sub_id,),
+        ).fetchone()
+
+        if not existing:
+            # Parse billing_date safely into date if present
+            renewal_d = None
+            raw_date = candidate.get("billing_date")
+            if raw_date:
+                try:
+                    renewal_d = date.fromisoformat(str(raw_date)[:10])
+                except (ValueError, TypeError):
+                    renewal_d = None
+
+            sub = Subscription(
+                subscription_id=sub_id,
+                service_name=candidate.get("provider_name") or "Discovered Service",
+                status=SubscriptionStatus.ACTIVE,
+                renewal_date=renewal_d,
+                last_used_at=None,  # Never invent usage history
+                monthly_cost=candidate.get("amount"),
+                currency=candidate.get("currency") or "USD",
+                billing_cycle="monthly",
+                source_record_id=message_id,
+                source_url=None,
+                cancellation_terms_url=None,
+                data_deletion_warning=False,
+                pause_option_available=False,
+            )
+            connection.execute(
+                """
+                INSERT INTO subscriptions(subscription_id, service_name, status, payload_json)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(subscription_id) DO UPDATE SET
+                    service_name=excluded.service_name,
+                    status=excluded.status,
+                    payload_json=excluded.payload_json,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                (
+                    sub.subscription_id,
+                    sub.service_name,
+                    sub.status.value,
+                    sub.model_dump_json(),
+                ),
+            )
+        return True
+
+
+def get_spending_analytics(user_id: str) -> Dict[str, Any]:
+    """Calculate verified spending analytics from persisted subscriptions and candidates.
+
+    Adheres strictly to financial safety invariants:
+    - Never combines incompatible currencies into a single raw sum.
+    - Never treats missing amounts as zero.
+    - Excludes one-time purchases from recurring cost totals.
+    - Converts non-monthly billing cycles deterministically.
+    - Avoids double-counting candidates that were confirmed into subscriptions.
+    - Clearly marks estimates and itemizes data uncertainties.
+    """
+    with get_db_session() as connection:
+        sub_rows = connection.execute(
+            "SELECT subscription_id, service_name, status, payload_json FROM subscriptions ORDER BY service_name"
+        ).fetchall()
+
+        candidate_rows = connection.execute(
+            """
+            SELECT message_id, thread_id, subject, sender, date_header,
+                   provider_name, amount, currency, billing_date,
+                   body_preview, confirmed, extracted_at
+            FROM gmail_candidates
+            WHERE user_id = ?
+            ORDER BY billing_date DESC, created_at DESC
+            """,
+            (user_id,),
+        ).fetchall()
+
+    subscriptions = [Subscription.model_validate_json(r["payload_json"]) for r in sub_rows]
+    candidates = [dict(r) for r in candidate_rows]
+
+    # If no subscriptions in database yet, load from connectors to establish baseline
+    if not subscriptions:
+        try:
+            from backend.app.connectors import fetch_subscriptions
+            subscriptions = fetch_subscriptions()
+        except Exception:
+            from backend.app.agent import load_fixture_data
+            subscriptions, _ = load_fixture_data()
+        for s in subscriptions:
+            save_subscription(s)
+
+    candidates_awaiting_review = [c for c in candidates if not c.get("confirmed")]
+
+    currency_totals: Dict[str, Dict[str, Any]] = {}
+    active_subscriptions: List[Dict[str, Any]] = []
+    cancelled_subscriptions: List[Dict[str, Any]] = []
+    unknown_status_subscriptions: List[Dict[str, Any]] = []
+    one_time_purchases: List[Dict[str, Any]] = []
+    unknown_cost_subscriptions: List[Dict[str, Any]] = []
+    upcoming_renewals: List[Dict[str, Any]] = []
+    uncertainties: List[Dict[str, Any]] = []
+
+    for sub in subscriptions:
+        sub_dict = {
+            "subscription_id": sub.subscription_id,
+            "service_name": sub.service_name,
+            "status": sub.status.value,
+            "monthly_cost": sub.monthly_cost,
+            "currency": sub.currency or "USD",
+            "billing_cycle": sub.billing_cycle or "monthly",
+            "renewal_date": sub.renewal_date.isoformat() if sub.renewal_date else None,
+            "source_record_id": sub.source_record_id,
+        }
+
+        cycle = (sub.billing_cycle or "monthly").strip().lower()
+        is_one_time = cycle in ("one-time", "one_time", "one-off", "single", "non-recurring")
+
+        if is_one_time:
+            one_time_purchases.append(sub_dict)
+            continue
+
+        if sub.status == SubscriptionStatus.CANCELLED:
+            cancelled_subscriptions.append(sub_dict)
+            continue
+        elif sub.status == SubscriptionStatus.UNKNOWN:
+            unknown_status_subscriptions.append(sub_dict)
+            uncertainties.append({
+                "subscription_id": sub.subscription_id,
+                "service_name": sub.service_name,
+                "issue": "Unknown subscription status",
+            })
+            continue
+
+        active_subscriptions.append(sub_dict)
+
+        if sub.renewal_date:
+            upcoming_renewals.append({
+                "subscription_id": sub.subscription_id,
+                "service_name": sub.service_name,
+                "renewal_date": sub.renewal_date.isoformat(),
+                "amount": sub.monthly_cost,
+                "currency": sub.currency or "USD",
+            })
+        else:
+            uncertainties.append({
+                "subscription_id": sub.subscription_id,
+                "service_name": sub.service_name,
+                "issue": "Missing renewal date",
+            })
+
+        if sub.monthly_cost is None:
+            unknown_cost_subscriptions.append(sub_dict)
+            uncertainties.append({
+                "subscription_id": sub.subscription_id,
+                "service_name": sub.service_name,
+                "issue": "Missing or unknown billing cost (not counted as 0)",
+            })
+            continue
+
+        cost = float(sub.monthly_cost)
+        curr = (sub.currency or "USD").upper()
+
+        if cycle in ("annual", "yearly"):
+            m_cost = round(cost / 12.0, 2)
+            a_cost = round(cost, 2)
+        elif cycle == "quarterly":
+            m_cost = round(cost / 3.0, 2)
+            a_cost = round(cost * 4.0, 2)
+        elif cycle == "weekly":
+            m_cost = round(cost * 52.0 / 12.0, 2)
+            a_cost = round(cost * 52.0, 2)
+        else:
+            m_cost = round(cost, 2)
+            a_cost = round(cost * 12.0, 2)
+
+        sub_dict["monthly_equivalent"] = m_cost
+        sub_dict["annual_equivalent"] = a_cost
+
+        if curr not in currency_totals:
+            currency_totals[curr] = {
+                "currency": curr,
+                "monthly_recurring_cost": 0.0,
+                "annual_recurring_cost": 0.0,
+                "count": 0,
+            }
+        currency_totals[curr]["monthly_recurring_cost"] = round(currency_totals[curr]["monthly_recurring_cost"] + m_cost, 2)
+        currency_totals[curr]["annual_recurring_cost"] = round(currency_totals[curr]["annual_recurring_cost"] + a_cost, 2)
+        currency_totals[curr]["count"] += 1
+
+    upcoming_renewals.sort(key=lambda x: x["renewal_date"])
+
+    currency_symbols = {"USD": "$", "EUR": "€", "GBP": "£", "CAD": "CA$", "AUD": "A$", "JPY": "¥"}
+    display_parts_monthly = []
+    display_parts_annual = []
+    for curr, totals in currency_totals.items():
+        sym = currency_symbols.get(curr, f"{curr} ")
+        display_parts_monthly.append(f"{sym}{totals['monthly_recurring_cost']:.2f}")
+        display_parts_annual.append(f"{sym}{totals['annual_recurring_cost']:.2f}")
+
+    primary_display = " + ".join(display_parts_monthly) if display_parts_monthly else "$0.00"
+    annual_display = " + ".join(display_parts_annual) if display_parts_annual else "$0.00"
+
+    return {
+        "total_monitored": len(subscriptions),
+        "confirmed_subscriptions_count": len(subscriptions),
+        "active_subscriptions_count": len(active_subscriptions),
+        "cancelled_subscriptions_count": len(cancelled_subscriptions),
+        "unknown_status_count": len(unknown_status_subscriptions),
+        "candidates_awaiting_review_count": len(candidates_awaiting_review),
+        "one_time_purchases_count": len(one_time_purchases),
+        "unknown_cost_count": len(unknown_cost_subscriptions),
+        "totals_by_currency": currency_totals,
+        "is_multi_currency": len(currency_totals) > 1,
+        "monthly_recurring_display": primary_display,
+        "annual_recurring_display": annual_display,
+        "is_estimate": True,
+        "upcoming_renewals": upcoming_renewals,
+        "uncertainties": uncertainties,
+        "active_subscriptions": active_subscriptions,
+        "candidates_awaiting_review": [
+            {
+                "message_id": c.get("message_id"),
+                "provider_name": c.get("provider_name"),
+                "amount": c.get("amount"),
+                "currency": c.get("currency"),
+                "billing_date": c.get("billing_date"),
+                "subject": c.get("subject"),
+                "extracted_at": c.get("extracted_at"),
+            }
+            for c in candidates_awaiting_review
+        ],
+    }

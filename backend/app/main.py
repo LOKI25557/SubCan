@@ -806,11 +806,16 @@ GMAIL_DEMO_USER = "demo_user_dadu"  # Single-user demo identity
 def get_gmail_status() -> Dict[str, Any]:
     """Return safe Gmail connection status — never exposes tokens or secrets."""
     from backend.app.gmail import get_connection_status
+    from backend.app.database import load_gmail_candidates
     conn = get_connection_status(GMAIL_DEMO_USER)
     cred = get_credential_status()
+    candidates = load_gmail_candidates(user_id=GMAIL_DEMO_USER)
+    pending_count = sum(1 for c in candidates if not c.get("confirmed"))
     return {
         **conn,
         "credential_status": cred,
+        "candidates_count": len(candidates),
+        "candidates_pending_count": pending_count,
         "data_source": "gmail_live" if conn["connected"] else "not_connected",
         "demo_note": (
             "X-User-ID is a demo identity placeholder. "
@@ -1034,4 +1039,21 @@ def confirm_gmail_candidate(message_id: str) -> Dict[str, Any]:
                 "message": f"Candidate with message_id '{message_id}' not found.",
             },
         )
-    return {"confirmed": True, "message_id": message_id}
+    return {"confirmed": True, "message_id": message_id, "subscription_id": f"sub_gmail_{message_id}"}
+
+
+@app.get(
+    "/api/spending/analytics",
+    tags=["Spending"],
+    summary="Get Verified Spending Analytics",
+    description=(
+        "Calculates verified recurring spending analytics from persisted subscriptions and Gmail candidates. "
+        "Separates multi-currency totals, excludes one-time purchases, identifies unknown/missing amounts, "
+        "and itemizes upcoming renewals."
+    ),
+)
+def get_spending_analytics_endpoint() -> Dict[str, Any]:
+    """Return structured spending analytics computed from SQLite storage."""
+    from backend.app.database import get_spending_analytics
+    return get_spending_analytics(user_id=GMAIL_DEMO_USER)
+

@@ -909,3 +909,226 @@ h3 {
   .app-header { flex-direction: column; align-items: stretch; }
   .nav-tabs { overflow-x: auto; }
 }
+
+/* ==========================================================================
+   Stage D & E: Gmail Integration, Candidates, and Spending Analytics
+   ========================================================================== */
+
+.nav-badge-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 7px;
+  background: var(--accent-primary);
+  color: #fff;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 700;
+  margin-left: 4px;
+}
+
+.gmail-panel {
+  background: linear-gradient(135deg, rgba(26, 34, 52, 0.85) 0%, rgba(17, 24, 39, 0.95) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: var(--radius-lg);
+  padding: 18px 24px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+.gmail-panel-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.gmail-icon-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, #ea4335, #fbbc05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  box-shadow: 0 0 16px rgba(234, 67, 53, 0.3);
+  flex-shrink: 0;
+}
+
+.gmail-status-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+
+.gmail-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.gmail-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.gmail-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 6px 12px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: #fbbf24;
+}
+
+.gmail-hint code {
+  font-family: var(--font-mono);
+  background: rgba(0, 0, 0, 0.3);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.gmail-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
+.gmail-sync-meta {
+  display: flex;
+  flex-direction: column;
+  text-align: right;
+  margin-right: 6px;
+}
+
+.meta-label {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+.gmail-sync-meta strong {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.sub-meta-pill {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+}
+
+.safety-alert-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  margin-bottom: 20px;
+  color: #e2e8f0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.safety-alert-card .alert-icon {
+  color: var(--accent-primary);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.safety-alert-card strong {
+  display: block;
+  margin-bottom: 2px;
+  color: #fff;
+}
+
+.button.outline-danger {
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+
+.button.outline-danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+}
+
+.half-card-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.renewals-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.renewal-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.renewal-service {
+  font-weight: 600;
+  color: #fff;
+}
+
+.renewal-meta {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: #93c5fd;
+}
+
+.uncertainties-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.uncertainty-item {
+  padding: 8px 12px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: #fde68a;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

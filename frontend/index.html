@@ -31,6 +31,14 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
           Subscriptions
         </button>
+        <button id="tab-btn-candidates" class="nav-tab" role="tab" aria-selected="false" data-tab="tab-candidates">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          Gmail Candidates <span id="nav-candidates-badge" class="nav-badge-pill" hidden>0</span>
+        </button>
+        <button id="tab-btn-analytics" class="nav-tab" role="tab" aria-selected="false" data-tab="tab-analytics">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          Spending Analytics
+        </button>
         <button id="tab-btn-audit" class="nav-tab" role="tab" aria-selected="false" data-tab="tab-audit">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
           Audit & Reconciliation
@@ -75,6 +83,46 @@
         <span id="notice-msg"></span>
         <button id="notice-close" class="notice-close" aria-label="Dismiss notice">×</button>
       </div>
+
+      <!-- Gmail Integration & Discovery Banner -->
+      <section id="gmail-integration-card" class="gmail-panel" aria-label="Gmail Billing Discovery Integration">
+        <div class="gmail-panel-info">
+          <div class="gmail-icon-wrap">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+              <polyline points="22,6 12,13 2,6"/>
+            </svg>
+          </div>
+          <div class="gmail-info-content">
+            <div class="gmail-status-line">
+              <span class="gmail-title">Gmail Billing Discovery</span>
+              <span id="gmail-status-badge" class="badge">Checking status…</span>
+              <span id="data-source-badge" class="badge">Demo Mode</span>
+              <span id="gmail-user-email" class="sub-meta-pill" hidden></span>
+            </div>
+            <p id="gmail-status-desc" class="gmail-desc">Connect a Gmail account with read-only access to automatically detect recurring receipts and invoices.</p>
+            <div id="gmail-setup-hint" class="gmail-hint" hidden>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
+              <span><strong>Setup Needed:</strong> Add <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> to your local <code>.env</code> file. See <code>.env.example</code>.</span>
+            </div>
+          </div>
+        </div>
+        <div class="gmail-panel-actions">
+          <div class="gmail-sync-meta">
+            <span class="meta-label">LAST SYNC</span>
+            <strong id="gmail-last-sync">Never synced</strong>
+          </div>
+          <button id="btn-connect-gmail" class="button primary small glow" hidden>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" x2="3" y1="12" y2="12"/></svg>
+            Connect Gmail
+          </button>
+          <button id="btn-sync-gmail" class="button primary small glow" hidden>
+            <svg id="sync-spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            Sync Billing Emails
+          </button>
+          <button id="btn-disconnect-gmail" class="button outline-danger small" hidden>Disconnect</button>
+        </div>
+      </section>
 
       <!-- Tab 1: Dashboard & Review -->
       <div id="tab-dashboard" class="tab-pane active" role="tabpanel">
@@ -197,7 +245,217 @@
         </section>
       </div>
 
-      <!-- Tab 2: Audit Trail & Reconciliation -->
+      <!-- Tab 2: Gmail Candidates Discovery (Stage D) -->
+      <div id="tab-candidates" class="tab-pane" role="tabpanel" hidden>
+        <!-- Security Invariant Notice -->
+        <div class="safety-alert-card">
+          <div class="alert-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <div>
+            <strong>Candidate Verification Rule:</strong>
+            <p>Billing emails discovered from Gmail are informational evidence only. A billing receipt does <em>not</em> confirm active usage and does <em>not</em> authorize cancellation. Explicit user confirmation is mandatory before any candidate enters the subscription inventory.</p>
+          </div>
+        </div>
+
+        <!-- Candidate Overview Cards -->
+        <section class="metrics-grid" aria-label="Gmail Candidate Overview">
+          <article class="metric-card">
+            <div class="metric-header">
+              <span class="metric-label">TOTAL DISCOVERED</span>
+              <span class="metric-icon total">#</span>
+            </div>
+            <strong id="cand-stat-total" class="metric-value">0</strong>
+            <span class="metric-foot">Discovered from Gmail receipts</span>
+          </article>
+
+          <article class="metric-card highlight-warning">
+            <div class="metric-header">
+              <span class="metric-label">AWAITING REVIEW</span>
+              <span class="metric-icon review">!</span>
+            </div>
+            <strong id="cand-stat-pending" class="metric-value">0</strong>
+            <span class="metric-foot">Unconfirmed billing records</span>
+          </article>
+
+          <article class="metric-card highlight-success">
+            <div class="metric-header">
+              <span class="metric-label">USER CONFIRMED</span>
+              <span class="metric-icon verified">&#x2714;</span>
+            </div>
+            <strong id="cand-stat-confirmed" class="metric-value">0</strong>
+            <span class="metric-foot">Added to subscription inventory</span>
+          </article>
+        </section>
+
+        <!-- Candidate Search & Filter -->
+        <section class="toolbar-card" aria-label="Gmail candidate search and filters">
+          <div class="search-field">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <input id="candidate-search" type="search" placeholder="Filter candidates by provider, sender, or subject…">
+          </div>
+          <div class="filter-group">
+            <label for="candidate-status-filter">Review Status</label>
+            <select id="candidate-status-filter">
+              <option value="">All candidates</option>
+              <option value="pending">Awaiting Review</option>
+              <option value="confirmed">Confirmed into Inventory</option>
+            </select>
+          </div>
+          <button id="btn-refresh-candidates" class="button secondary small">Refresh Candidates</button>
+        </section>
+
+        <!-- Candidate Table -->
+        <section class="table-card">
+          <div class="card-header">
+            <div>
+              <h2>Discovered Billing Candidates</h2>
+              <p class="muted">Extracted from Google Gmail read-only billing queries.</p>
+            </div>
+            <div class="legend">
+              <span class="legend-item"><span class="dot review"></span> Awaiting Review</span>
+              <span class="legend-item"><span class="dot verified"></span> Confirmed</span>
+            </div>
+          </div>
+
+          <div id="candidates-loading" class="empty-state" hidden>Loading billing candidates…</div>
+
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>SERVICE / SENDER</th>
+                  <th>AMOUNT & CURRENCY</th>
+                  <th>BILLING DATE</th>
+                  <th>EMAIL SUBJECT / SAFE ID</th>
+                  <th>DISCOVERY TIME</th>
+                  <th>REVIEW STATUS</th>
+                  <th>ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody id="candidate-rows">
+                <tr><td colspan="7" class="empty-state">No Gmail candidates discovered yet. Connect Gmail and click 'Sync Billing Emails'.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <!-- Tab 3: Real Spending Analytics (Stage E) -->
+      <div id="tab-analytics" class="tab-pane" role="tabpanel" hidden>
+        <!-- Spending Overview Cards -->
+        <section class="metrics-grid" aria-label="Spending Analytics Overview">
+          <article class="metric-card highlight-success">
+            <div class="metric-header">
+              <span class="metric-label">CONFIRMED ACTIVE</span>
+              <span class="metric-icon total">#</span>
+            </div>
+            <strong id="analytics-active-count" class="metric-value">0</strong>
+            <span class="metric-foot">Active persisted subscriptions</span>
+          </article>
+
+          <article class="metric-card">
+            <div class="metric-header">
+              <span class="metric-label">MONTHLY RECURRING (EST.)</span>
+              <span class="metric-icon pending">$</span>
+            </div>
+            <strong id="analytics-monthly-total" class="metric-value">$0.00</strong>
+            <span class="metric-foot">Normalized monthly cost</span>
+          </article>
+
+          <article class="metric-card">
+            <div class="metric-header">
+              <span class="metric-label">ANNUAL RECURRING (EST.)</span>
+              <span class="metric-icon candidate">$$</span>
+            </div>
+            <strong id="analytics-annual-total" class="metric-value">$0.00</strong>
+            <span class="metric-foot">Projected 12-month expense</span>
+          </article>
+
+          <article class="metric-card">
+            <div class="metric-header">
+              <span class="metric-label">UPCOMING RENEWALS</span>
+              <span class="metric-icon verified">&#x1F4C5;</span>
+            </div>
+            <strong id="analytics-upcoming-count" class="metric-value">0</strong>
+            <span class="metric-foot">Scheduled renewal dates</span>
+          </article>
+
+          <article class="metric-card highlight-warning">
+            <div class="metric-header">
+              <span class="metric-label">CANDIDATES PENDING</span>
+              <span class="metric-icon review">!</span>
+            </div>
+            <strong id="analytics-candidates-pending" class="metric-value">0</strong>
+            <span class="metric-foot">Discovered but not confirmed</span>
+          </article>
+
+          <article class="metric-card">
+            <div class="metric-header">
+              <span class="metric-label">UNCERTAIN / UNKNOWN</span>
+              <span class="metric-icon blocked">?</span>
+            </div>
+            <strong id="analytics-unknown-count" class="metric-value">0</strong>
+            <span class="metric-foot">Missing cost or renewal</span>
+          </article>
+        </section>
+
+        <div class="audit-split">
+          <!-- Active Subscription Financial Breakdown -->
+          <div class="card half-card">
+            <div class="card-header">
+              <div>
+                <h3>Confirmed Subscription Breakdown</h3>
+                <p class="muted">Normalized cost conversions (Annual/12, Monthly*12).</p>
+              </div>
+              <button id="btn-refresh-analytics" class="button secondary small">Refresh</button>
+            </div>
+            <div class="table-wrap mini">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Service</th>
+                    <th>Billing Cycle</th>
+                    <th>Monthly Equiv.</th>
+                    <th>Annual Equiv.</th>
+                    <th>Renewal Date</th>
+                  </tr>
+                </thead>
+                <tbody id="analytics-breakdown-rows">
+                  <tr><td colspan="5" class="empty-state">Loading spending analytics…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Upcoming Renewals & Uncertainties -->
+          <div class="half-card-col">
+            <!-- Renewals Timeline -->
+            <div class="card">
+              <div class="card-header">
+                <h3>Upcoming Renewal Schedule</h3>
+                <span class="badge">Chronological</span>
+              </div>
+              <div id="analytics-renewals-list" class="renewals-timeline">
+                <div class="empty-state">No upcoming renewal dates recorded.</div>
+              </div>
+            </div>
+
+            <!-- Invariants and Incomplete Data Alert Box -->
+            <div class="card" style="margin-top: 16px;">
+              <div class="card-header">
+                <h3>Data Integrity & Uncertainties</h3>
+                <span class="badge warning">Financial Invariants</span>
+              </div>
+              <div id="analytics-uncertainties-list" class="uncertainties-box">
+                <p class="sub-meta">No data ambiguities detected. All amounts and renewals validated.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 4: Audit Trail & Reconciliation -->
       <div id="tab-audit" class="tab-pane" role="tabpanel" hidden>
         <div class="reconciliation-panel">
           <div class="reconcile-stats">
