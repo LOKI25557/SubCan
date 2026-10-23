@@ -12,9 +12,9 @@ import json
 import os
 from pathlib import Path
 import sqlite3
-from typing import Dict, Iterator, Optional, TYPE_CHECKING
+from typing import Any, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING
 
-from backend.app.models import AgentRun, Subscription
+from backend.app.models import ActionResult, AgentRun, Subscription
 
 if TYPE_CHECKING:
     from backend.app.agent import SubscriptionRunState
@@ -94,11 +94,35 @@ def initialize_schema(connection: Optional[sqlite3.Connection] = None) -> None:
             payload_json TEXT NOT NULL,
             UNIQUE (run_id, subscription_id, event_type, entity_id, event_at)
         );
+        CREATE TABLE IF NOT EXISTS action_records (
+            action_id TEXT PRIMARY KEY,
+            idempotency_key TEXT,
+            subscription_id TEXT NOT NULL,
+            plan_id TEXT NOT NULL,
+            plan_version TEXT NOT NULL,
+            action_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            request_sig_json TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS test_results (
+            test_id TEXT PRIMARY KEY,
+            scenario_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            expected TEXT NOT NULL,
+            actual TEXT NOT NULL,
+            evidence_summary TEXT,
+            details TEXT,
+            executed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
         CREATE INDEX IF NOT EXISTS idx_run_subscriptions_status
             ON run_subscriptions(final_status);
         CREATE INDEX IF NOT EXISTS idx_audit_events_subscription
             ON audit_events(subscription_id, event_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_action_records_idempotency
+            ON action_records(idempotency_key) WHERE idempotency_key IS NOT NULL;
         """
     )
     if owns_connection:
@@ -200,6 +224,15 @@ def _append_event(
             """,
             (run_id, subscription_id, event_type, entity_id, timestamp.isoformat(), entity.model_dump_json()),
         )
+    for ev in state.evidence_list:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO audit_events
+                (run_id, subscription_id, event_type, entity_id, event_at, payload_json)
+            VALUES (?, ?, 'evidence', ?, ?, ?)
+            """,
+            (run_id, subscription_id, ev.evidence_id, ev.captured_at.isoformat(), ev.model_dump_json()),
+        )
 
 
 def load_run_snapshots() -> list[tuple[AgentRun, Dict[str, "SubscriptionRunState"]]]:
@@ -271,3 +304,108 @@ def save_subscription(subscription: Subscription) -> None:
                 subscription.model_dump_json(),
             ),
         )
+
+
+def save_action_record(
+    key: Optional[str],
+    action: ActionResult,
+    request_sig: Dict[str, str],
+) -> None:
+    """Persist an action result and its idempotency signature durably."""
+    try:
+        with get_db_session() as connection:
+            connection.execute(
+                """
+                INSERT INTO action_records(
+                    action_id, idempotency_key, subscription_id, plan_id,
+                    plan_version, action_type, status, request_sig_json, payload_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(action_id) DO UPDATE SET
+                    status=excluded.status,
+                    payload_json=excluded.payload_json
+                """,
+                (
+                    action.action_id,
+                    key,
+                    action.subscription_id,
+                    action.plan_id,
+                    request_sig.get("plan_version", ""),
+                    action.action_type,
+                    action.status.value,
+                    json.dumps(request_sig),
+                    action.model_dump_json(),
+                ),
+            )
+    except Exception:
+        pass
+
+
+def load_action_records() -> List[Tuple[Optional[str], ActionResult, Dict[str, str]]]:
+    """Load persisted actions to restore ActionRegistry on startup."""
+    try:
+        with get_db_session() as connection:
+            rows = connection.execute(
+                """
+                SELECT idempotency_key, request_sig_json, payload_json
+                FROM action_records
+                """
+            ).fetchall()
+            records = []
+            for row in rows:
+                action = ActionResult.model_validate_json(row["payload_json"])
+                sig = json.loads(row["request_sig_json"])
+                records.append((row["idempotency_key"], action, sig))
+            return records
+    except Exception:
+        return []
+
+
+def save_test_result(
+    test_id: str,
+    scenario_id: str,
+    status: str,
+    expected: str,
+    actual: str,
+    evidence_summary: str = "",
+    details: str = "",
+) -> None:
+    """Persist test execution scorecard result."""
+    try:
+        with get_db_session() as connection:
+            connection.execute(
+                """
+                INSERT INTO test_results(
+                    test_id, scenario_id, status, expected, actual,
+                    evidence_summary, details, executed_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(test_id) DO UPDATE SET
+                    status=excluded.status,
+                    expected=excluded.expected,
+                    actual=excluded.actual,
+                    evidence_summary=excluded.evidence_summary,
+                    details=excluded.details,
+                    executed_at=CURRENT_TIMESTAMP
+                """,
+                (test_id, scenario_id, status, expected, actual, evidence_summary, details),
+            )
+    except Exception:
+        pass
+
+
+def list_test_results() -> List[Dict[str, Any]]:
+    """Retrieve persisted test run scorecard results."""
+    try:
+        with get_db_session() as connection:
+            rows = connection.execute(
+                """
+                SELECT test_id, scenario_id, status, expected, actual,
+                       evidence_summary, details, executed_at
+                FROM test_results
+                ORDER BY executed_at DESC, test_id ASC
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+    except Exception:
+        return []

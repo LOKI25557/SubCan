@@ -3,61 +3,323 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SubCan Dashboard</title>
-  <link rel="stylesheet" href="/dashboard/styles.css">
+  <meta name="description" content="SubCan - AI-assisted subscription cancellation agent. Detect, decide, approve, cancel, and verify unused subscriptions.">
+  <title>SubCan — AI-Assisted Subscription Cancellation Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/dashboard/styles.css?v=2.1">
 </head>
 <body>
-  <main class="shell">
-    <header class="header">
-      <div>
-        <p class="eyebrow">SUBCAN CONTROL CENTER</p>
-        <h1>Subscription review</h1>
-        <p class="muted">Review evidence, approve exact plans, and verify outcomes.</p>
+  <div class="app-layout">
+    <!-- Navigation Sidebar / Topbar -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-mark">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+          </svg>
+        </div>
+        <div>
+          <span class="brand-title">SubCan</span>
+          <span class="brand-badge">Agent v0.1.0</span>
+        </div>
       </div>
-      <button id="refresh" class="button secondary">Refresh</button>
+
+      <nav class="nav-tabs" role="tablist">
+        <button id="tab-btn-dashboard" class="nav-tab active" role="tab" aria-selected="true" data-tab="tab-dashboard">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+          Subscriptions
+        </button>
+        <button id="tab-btn-audit" class="nav-tab" role="tab" aria-selected="false" data-tab="tab-audit">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          Audit & Reconciliation
+        </button>
+        <button id="tab-btn-tests" class="nav-tab" role="tab" aria-selected="false" data-tab="tab-tests">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          Acceptance Test Suite
+        </button>
+      </nav>
+
+      <div class="header-actions">
+        <button id="refresh" class="button secondary icon-btn" title="Refresh state">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+          Refresh
+        </button>
+      </div>
     </header>
 
-    <section id="notice" class="notice" role="status" hidden></section>
-    <section id="cards" class="cards" aria-label="Overview">
-      <article><span>Total subscriptions</span><strong id="total">0</strong></article>
-      <article><span>Inactive candidates</span><strong id="inactive">0</strong></article>
-      <article><span>Requiring review</span><strong id="review">0</strong></article>
-      <article><span>Pending approvals</span><strong id="pending">0</strong></article>
-      <article><span>Verified cancellations</span><strong id="verified">0</strong></article>
-      <article><span>Failed or blocked</span><strong id="blocked">0</strong></article>
-    </section>
+    <main class="main-content">
+      <!-- Title section -->
+      <section class="page-title-bar">
+        <div>
+          <p class="eyebrow">SUBCAN FINTECH AGENT CORE</p>
+          <h1 id="page-heading">Subscription review</h1>
+          <p class="muted subtitle">Deterministic inactivity rules, explicit human approval gate, safe execution, and independent provider verification.</p>
+        </div>
+        <div class="run-control-box">
+          <div class="run-meta">
+            <span class="label">CURRENT RUN</span>
+            <strong id="active-run-id">No active run</strong>
+          </div>
+          <button id="start-run" class="button primary glow">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Start review run
+          </button>
+        </div>
+      </section>
 
-    <section class="toolbar" aria-label="Subscription controls">
-      <label>Search <input id="search" type="search" placeholder="Service name or ID"></label>
-      <label>Status
-        <select id="status-filter">
-          <option value="">All statuses</option>
-          <option value="active">Active</option>
-          <option value="cancelled">Cancelled</option>
-          <option value="unknown">Unknown</option>
-        </select>
-      </label>
-      <button id="start-run" class="button primary">Start review run</button>
-    </section>
-
-    <section class="panel">
-      <div class="panel-heading">
-        <div><h2>Subscriptions</h2><p id="run-label" class="muted">No review run selected.</p></div>
+      <!-- Global notification banner -->
+      <div id="notice" class="notice-banner" role="status" hidden>
+        <span id="notice-icon" class="notice-icon"></span>
+        <span id="notice-msg"></span>
+        <button id="notice-close" class="notice-close" aria-label="Dismiss notice">×</button>
       </div>
-      <div id="loading" class="empty">Loading subscription records…</div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Service</th><th>Status</th><th>Last used</th><th>Renewal</th><th>Eligibility</th><th>Workflow</th><th></th></tr></thead>
-          <tbody id="subscription-rows"></tbody>
-        </table>
-      </div>
-    </section>
 
-    <section id="detail" class="panel detail" hidden>
-      <div class="panel-heading"><div><h2 id="detail-title">Subscription details</h2><p id="detail-subtitle" class="muted"></p></div><button id="close-detail" class="icon-button" aria-label="Close details">×</button></div>
-      <div id="detail-content"></div>
-    </section>
-  </main>
-  <script src="/dashboard/app.js"></script>
+      <!-- Tab 1: Dashboard & Review -->
+      <div id="tab-dashboard" class="tab-pane active" role="tabpanel">
+        <!-- Metric Overview Cards -->
+        <section id="cards" class="metrics-grid" aria-label="Subscription Overview">
+          <article class="metric-card">
+            <div class="metric-header">
+              <span class="metric-label">TOTAL MONITORED</span>
+              <span class="metric-icon total">#</span>
+            </div>
+            <strong id="total" class="metric-value">0</strong>
+            <span class="metric-foot">Ingested via connectors</span>
+          </article>
+
+          <article class="metric-card">
+            <div class="metric-header">
+              <span class="metric-label">INACTIVE CANDIDATES</span>
+              <span class="metric-icon candidate">&ge;3m</span>
+            </div>
+            <strong id="inactive" class="metric-value">0</strong>
+            <span class="metric-foot">Unused &ge; 3 calendar months</span>
+          </article>
+
+          <article class="metric-card">
+            <div class="metric-header">
+              <span class="metric-label">REQUIRING REVIEW</span>
+              <span class="metric-icon review">!</span>
+            </div>
+            <strong id="review" class="metric-value">0</strong>
+            <span class="metric-foot">Missing/contradictory evidence</span>
+          </article>
+
+          <article class="metric-card">
+            <div class="metric-header">
+              <span class="metric-label">PENDING APPROVAL</span>
+              <span class="metric-icon pending">&#x23F3;</span>
+            </div>
+            <strong id="pending" class="metric-value">0</strong>
+            <span class="metric-foot">Awaiting user confirmation</span>
+          </article>
+
+          <article class="metric-card highlight-success">
+            <div class="metric-header">
+              <span class="metric-label">VERIFIED CANCELLED</span>
+              <span class="metric-icon verified">&#x2714;</span>
+            </div>
+            <strong id="verified" class="metric-value">0</strong>
+            <span class="metric-foot">Independently verified off</span>
+          </article>
+
+          <article class="metric-card highlight-danger">
+            <div class="metric-header">
+              <span class="metric-label">BLOCKED / FAILED / KEPT</span>
+              <span class="metric-icon blocked">&#x2718;</span>
+            </div>
+            <strong id="blocked" class="metric-value">0</strong>
+            <span class="metric-foot">Preserved or stopped safely</span>
+          </article>
+        </section>
+
+        <!-- Filter Controls -->
+        <section class="toolbar-card" aria-label="Subscription search and filters">
+          <div class="search-field">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <input id="search" type="search" placeholder="Filter by service name, provider, or ID…">
+          </div>
+          <div class="filter-group">
+            <label for="status-filter">Status</label>
+            <select id="status-filter">
+              <option value="">All statuses</option>
+              <option value="active">Active</option>
+              <option value="cancelled">Cancelled</option>
+              <option value="unknown">Unknown</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="eligibility-filter">Eligibility</label>
+            <select id="eligibility-filter">
+              <option value="">All decisions</option>
+              <option value="candidate">Eligible Candidate</option>
+              <option value="needs_review">Needs Review</option>
+              <option value="not_eligible">Not Eligible</option>
+            </select>
+          </div>
+        </section>
+
+        <!-- Subscription Records Table -->
+        <section class="table-card">
+          <div class="card-header">
+            <div>
+              <h2>Subscriptions Overview</h2>
+              <p id="table-subtext" class="muted">Live status of connector-discovered accounts.</p>
+            </div>
+            <div class="legend">
+              <span class="legend-item"><span class="dot candidate"></span> Candidate</span>
+              <span class="legend-item"><span class="dot verified"></span> Verified Cancelled</span>
+              <span class="legend-item"><span class="dot review"></span> Review Required</span>
+            </div>
+          </div>
+
+          <div id="loading" class="empty-state">Loading subscription records from connectors…</div>
+
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>SERVICE / SUBSCRIPTION ID</th>
+                  <th>PROVIDER STATUS</th>
+                  <th>LAST DETECTED USAGE</th>
+                  <th>RENEWAL DATE</th>
+                  <th>MONTHLY COST</th>
+                  <th>ELIGIBILITY DECISION</th>
+                  <th>AGENT WORKFLOW STATE</th>
+                  <th>ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody id="subscription-rows"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <!-- Tab 2: Audit Trail & Reconciliation -->
+      <div id="tab-audit" class="tab-pane" role="tabpanel" hidden>
+        <div class="reconciliation-panel">
+          <div class="reconcile-stats">
+            <div class="stat-pill">
+              <span class="stat-label">TOTAL EVALUATED</span>
+              <strong id="audit-total-evaluated">0</strong>
+            </div>
+            <div class="stat-pill success">
+              <span class="stat-label">CANCELLED & VERIFIED</span>
+              <strong id="audit-total-cancelled">0</strong>
+            </div>
+            <div class="stat-pill neutral">
+              <span class="stat-label">USER KEPT / DECLINED</span>
+              <strong id="audit-total-kept">0</strong>
+            </div>
+            <div class="stat-pill highlight">
+              <span class="stat-label">RECURRING MONTHLY SAVINGS</span>
+              <strong id="audit-monthly-savings">$0.00</strong>
+            </div>
+          </div>
+
+          <div class="audit-split">
+            <!-- Run Itemized Breakdown -->
+            <div class="card half-card">
+              <div class="card-header">
+                <h3>Subscription Reconciliation</h3>
+                <span class="badge">Run Report</span>
+              </div>
+              <div class="table-wrap mini">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Service</th>
+                      <th>Final Status</th>
+                      <th>Action Succeeded?</th>
+                      <th>Independent Verification</th>
+                    </tr>
+                  </thead>
+                  <tbody id="reconciliation-rows">
+                    <tr><td colspan="4" class="empty-state">Start an orchestration run to inspect report reconciliation.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Immutable Event Log -->
+            <div class="card half-card">
+              <div class="card-header">
+                <h3>Immutable Audit Trail (SQLite)</h3>
+                <button id="refresh-audit" class="button secondary small">Refresh Trail</button>
+              </div>
+              <div id="audit-events-timeline" class="events-timeline">
+                <div class="empty-state">No audit events found. Run a review and perform actions to generate events.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 3: Official Acceptance Test Suite (Screen E) -->
+      <div id="tab-tests" class="tab-pane" role="tabpanel" hidden>
+        <section class="test-runner-card">
+          <div class="runner-header">
+            <div>
+              <h2>Official Acceptance Test Report (Screen E)</h2>
+              <p class="muted">Live verification scorecard for TC1 - TC4 and required safety edge cases.</p>
+            </div>
+            <button id="run-official-tests-btn" class="button primary glow">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Execute Official Acceptance Suite
+            </button>
+          </div>
+
+          <div id="test-summary-bar" class="test-summary-bar" hidden>
+            <div class="scorecard-chip" id="chip-passed">Passed: <strong id="score-passed">0</strong></div>
+            <div class="scorecard-chip" id="chip-failed">Failed: <strong id="score-failed">0</strong></div>
+            <div class="scorecard-chip" id="chip-total">Total: <strong id="score-total">0</strong></div>
+          </div>
+
+          <div id="tests-loading" class="empty-state" hidden>Executing official test scenarios in mock environment…</div>
+
+          <div class="table-wrap">
+            <table class="data-table test-table">
+              <thead>
+                <tr>
+                  <th style="width: 100px;">SCENARIO</th>
+                  <th>TITLE & DESCRIPTION</th>
+                  <th>INPUT FIXTURE</th>
+                  <th>EXPECTED RESULT</th>
+                  <th>ACTUAL RESULT</th>
+                  <th style="width: 110px;">STATUS</th>
+                  <th>SUPPORTING EVIDENCE</th>
+                </tr>
+              </thead>
+              <tbody id="official-test-rows">
+                <tr><td colspan="7" class="empty-state">Click 'Execute Official Acceptance Suite' to run all official test scenarios.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- Slide-over Drawer for Subscription Details & Approval Gate -->
+    <aside id="detail-drawer" class="drawer-overlay" hidden aria-hidden="true" style="display: none;">
+      <div class="drawer" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+        <div class="drawer-header">
+          <div>
+            <span id="detail-eyebrow" class="drawer-eyebrow">SUBSCRIPTION DETAILS</span>
+            <h2 id="detail-title">Service Details</h2>
+            <code id="detail-subtitle" class="sub-id-code">—</code>
+          </div>
+          <button id="close-detail" class="icon-btn close-btn" aria-label="Close drawer">×</button>
+        </div>
+
+        <div id="detail-body" class="drawer-body">
+          <!-- Populated dynamically when a subscription is inspected -->
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script src="/dashboard/app.js?v=2.1"></script>
 </body>
 </html>

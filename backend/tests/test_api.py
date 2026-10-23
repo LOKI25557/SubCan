@@ -563,3 +563,31 @@ def test_13_repeated_requests_respect_idempotency_behavior(
 
     # Exactly one action in registry
     assert len(get_action_registry()._actions_by_id) == 1
+
+
+def test_14_audit_endpoint_returns_events(
+    client: TestClient,
+    base_time: datetime,
+):
+    """14. GET /runs/{run_id}/audit returns chronological audit events from persistence."""
+    create_resp = client.post(
+        "/runs",
+        json={"subscription_ids": ["sub_tc1_cinevault"], "as_of": base_time.isoformat()},
+    )
+    run_id = create_resp.json()["run_id"]
+    audit_resp = client.get(f"/runs/{run_id}/audit")
+    assert audit_resp.status_code == 200
+    events = audit_resp.json()
+    assert isinstance(events, list)
+
+
+def test_15_test_report_endpoint_returns_scorecard(client: TestClient):
+    """15. GET /api/test-report executes official acceptance tests and returns structured scorecard."""
+    resp = client.get("/api/test-report")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, list)
+    assert len(data) >= 9
+    scenarios = {item["test_id"] for item in data}
+    assert {"TC1", "TC2", "TC3", "TC4"} <= scenarios
+
