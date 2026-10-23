@@ -116,6 +116,24 @@ def initialize_schema(connection: Optional[sqlite3.Connection] = None) -> None:
             details TEXT,
             executed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS gmail_candidates (
+            message_id TEXT PRIMARY KEY,
+            thread_id TEXT,
+            user_id TEXT NOT NULL,
+            subject TEXT,
+            sender TEXT,
+            date_header TEXT,
+            provider_name TEXT,
+            amount REAL,
+            currency TEXT,
+            billing_date TEXT,
+            body_preview TEXT,
+            confirmed INTEGER NOT NULL DEFAULT 0,
+            extracted_at TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_gmail_candidates_user
+            ON gmail_candidates(user_id, confirmed);
         CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
         CREATE INDEX IF NOT EXISTS idx_run_subscriptions_status
             ON run_subscriptions(final_status);
@@ -409,3 +427,84 @@ def list_test_results() -> List[Dict[str, Any]]:
             return [dict(row) for row in rows]
     except Exception:
         return []
+
+
+def save_gmail_candidates(
+    candidates: List[Dict[str, Any]],
+    user_id: str,
+) -> int:
+    """Persist Gmail billing candidates, skipping duplicates by message_id.
+
+    Returns the number of newly inserted records.
+    """
+    inserted = 0
+    with get_db_session() as connection:
+        for c in candidates:
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO gmail_candidates(
+                        message_id, thread_id, user_id, subject, sender,
+                        date_header, provider_name, amount, currency,
+                        billing_date, body_preview, extracted_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(message_id) DO UPDATE SET
+                        provider_name=excluded.provider_name,
+                        amount=excluded.amount,
+                        billing_date=excluded.billing_date,
+                        body_preview=excluded.body_preview
+                    """,
+                    (
+                        c.get("message_id"),
+                        c.get("thread_id"),
+                        user_id,
+                        c.get("subject", "")[:200],
+                        c.get("sender", "")[:200],
+                        c.get("date_header", "")[:50],
+                        c.get("provider_name"),
+                        c.get("amount"),
+                        c.get("currency"),
+                        c.get("billing_date"),
+                        c.get("body_preview", "")[:500],
+                        c.get("extracted_at", ""),
+                    ),
+                )
+                inserted += 1
+            except Exception:
+                continue
+    return inserted
+
+
+def load_gmail_candidates(
+    user_id: str,
+    confirmed_only: bool = False,
+) -> List[Dict[str, Any]]:
+    """Load Gmail billing candidates for the given user."""
+    with get_db_session() as connection:
+        query = """
+            SELECT message_id, thread_id, subject, sender, date_header,
+                   provider_name, amount, currency, billing_date,
+                   body_preview, confirmed, extracted_at, created_at
+            FROM gmail_candidates
+            WHERE user_id = ?
+        """
+        params: list = [user_id]
+        if confirmed_only:
+            query += " AND confirmed = 1"
+        query += " ORDER BY billing_date DESC, created_at DESC"
+        rows = connection.execute(query, params).fetchall()
+        return [dict(row) for row in rows]
+
+
+def confirm_gmail_candidate(message_id: str, user_id: str) -> bool:
+    """Mark a Gmail billing candidate as user-confirmed.
+
+    Returns True if a record was updated, False if not found.
+    """
+    with get_db_session() as connection:
+        cursor = connection.execute(
+            "UPDATE gmail_candidates SET confirmed = 1 WHERE message_id = ? AND user_id = ?",
+            (message_id, user_id),
+        )
+        return cursor.rowcount > 0

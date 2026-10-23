@@ -22,11 +22,13 @@ from datetime import datetime, timezone
 import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Query, Request, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
+
+from backend.app.config import get_credential_status, oauth_credentials_configured
 
 from backend.app.actions import (
     IdempotencyConflictError,
@@ -780,3 +782,256 @@ def get_official_test_report() -> List[Any]:
     from backend.app.acceptance import run_official_test_suite
     return [r.model_dump() for r in run_official_test_suite()]
 
+
+# ==============================================================================
+# Gmail OAuth 2.0 & Email Discovery Endpoints (Phase 3+)
+# X-User-ID header used as demo identity — not production authentication.
+# Production deployment requires proper session-based authentication and
+# per-user ownership enforcement before these endpoints can be made multi-user.
+# ==============================================================================
+
+GMAIL_DEMO_USER = "demo_user_dadu"  # Single-user demo identity
+
+
+@app.get(
+    "/api/email/status",
+    tags=["Gmail"],
+    summary="Gmail OAuth Connection Status",
+    description=(
+        "Returns whether Gmail is connected for the demo user. "
+        "Reports credential configuration status without exposing secrets. "
+        "Data source: 'gmail_live' if authorized, 'not_connected' otherwise."
+    ),
+)
+def get_gmail_status() -> Dict[str, Any]:
+    """Return safe Gmail connection status — never exposes tokens or secrets."""
+    from backend.app.gmail import get_connection_status
+    conn = get_connection_status(GMAIL_DEMO_USER)
+    cred = get_credential_status()
+    return {
+        **conn,
+        "credential_status": cred,
+        "data_source": "gmail_live" if conn["connected"] else "not_connected",
+        "demo_note": (
+            "X-User-ID is a demo identity placeholder. "
+            "This endpoint requires real session authentication before production use."
+        ),
+    }
+
+
+@app.get(
+    "/api/email/oauth/start",
+    tags=["Gmail"],
+    summary="Start Gmail OAuth Authorization Flow",
+    description=(
+        "Initiates the Google OAuth 2.0 authorization flow with PKCE. "
+        "Requires GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to be configured in .env. "
+        "Redirects to Google's consent screen. "
+        "Scopes: gmail.readonly, openid, userinfo.email only."
+    ),
+)
+def start_gmail_oauth(request: Request) -> RedirectResponse:
+    """Generate secure authorization URL and redirect to Google."""
+    from backend.app.gmail import (
+        OAuthNotConfiguredError,
+        build_authorization_url,
+    )
+    try:
+        auth_url = build_authorization_url(user_id=GMAIL_DEMO_USER)
+        return RedirectResponse(url=auth_url, status_code=302)
+    except OAuthNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "OAUTH_NOT_CONFIGURED",
+                "message": str(exc),
+                "details": {
+                    "action": (
+                        "Add GOOGLE_CLIENT_ID and a newly rotated GOOGLE_CLIENT_SECRET "
+                        "to your local .env file. See .env.example for instructions."
+                    )
+                },
+            },
+        )
+
+
+@app.get(
+    "/api/email/oauth/callback",
+    tags=["Gmail"],
+    summary="Google OAuth Callback Handler",
+    description=(
+        "Handles the redirect from Google after consent. "
+        "Validates state parameter, exchanges code for tokens with PKCE verifier, "
+        "and persists credentials in the local SQLite database. "
+        "Tokens are NEVER exposed in responses or logs."
+    ),
+)
+def gmail_oauth_callback(
+    code: Optional[str] = Query(default=None),
+    state: Optional[str] = Query(default=None),
+    error: Optional[str] = Query(default=None),
+) -> RedirectResponse:
+    """Handle Google OAuth callback, validate state, exchange tokens, redirect to dashboard."""
+    from backend.app.gmail import (
+        OAuthNotConfiguredError,
+        OAuthStateError,
+        OAuthTokenError,
+        handle_oauth_callback,
+    )
+    if error and not code:
+        return RedirectResponse(
+            url=f"/dashboard/?gmail_error={error}",
+            status_code=302,
+        )
+
+    if not code or not state:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "BAD_REQUEST",
+                "message": "OAuth callback is missing required 'code' or 'state' parameter.",
+            },
+        )
+
+    try:
+        handle_oauth_callback(code=code, state=state, error=error)
+        return RedirectResponse(
+            url="/dashboard/?gmail_connected=1",
+            status_code=302,
+        )
+    except OAuthStateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "OAUTH_STATE_ERROR", "message": str(exc)},
+        )
+    except OAuthTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"code": "OAUTH_TOKEN_ERROR", "message": str(exc)},
+        )
+    except OAuthNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "OAUTH_NOT_CONFIGURED", "message": str(exc)},
+        )
+
+
+@app.post(
+    "/api/email/disconnect",
+    tags=["Gmail"],
+    summary="Disconnect Gmail",
+    description=(
+        "Revokes and deletes stored OAuth tokens for the demo user. "
+        "Attempts token revocation with Google (best-effort). "
+        "Removes credentials from local SQLite storage."
+    ),
+)
+def disconnect_gmail() -> Dict[str, Any]:
+    """Revoke and delete stored Gmail credentials."""
+    from backend.app.gmail import revoke_connection
+    removed = revoke_connection(GMAIL_DEMO_USER)
+    return {
+        "disconnected": removed,
+        "message": "Gmail disconnected and tokens revoked." if removed else "No active Gmail connection found.",
+    }
+
+
+@app.post(
+    "/api/email/sync",
+    tags=["Gmail"],
+    summary="Synchronize Billing Emails from Gmail",
+    description=(
+        "Fetches billing-relevant emails from Gmail using the read-only API. "
+        "Extracts provider names, amounts, and dates as billing candidates. "
+        "Email content is treated as untrusted — no cancellations are triggered. "
+        "Requires active Gmail authorization. Returns 'gmail_live' data source label."
+    ),
+)
+def sync_gmail_billing(
+    max_messages: int = Query(default=50, ge=1, le=200),
+) -> Dict[str, Any]:
+    """Discover billing emails and return structured candidates."""
+    from backend.app.gmail import (
+        OAuthTokenError,
+        discover_billing_emails,
+    )
+    from backend.app.database import save_gmail_candidates
+
+    try:
+        result = discover_billing_emails(
+            user_id=GMAIL_DEMO_USER,
+            max_messages=max_messages,
+        )
+        saved_count = save_gmail_candidates(result["candidates"], GMAIL_DEMO_USER)
+        result["saved_candidates"] = saved_count
+        result["note"] = (
+            "Billing email candidates extracted. "
+            "A billing receipt does NOT confirm an active subscription. "
+            "Review and confirm candidates before adding to subscription inventory."
+        )
+        return result
+    except OAuthTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "GMAIL_NOT_CONNECTED",
+                "message": str(exc),
+                "details": {"action": "Connect Gmail first via /api/email/oauth/start"},
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "GMAIL_SYNC_ERROR",
+                "message": f"Gmail sync failed ({type(exc).__name__}). Check credentials and quota.",
+            },
+        )
+
+
+@app.get(
+    "/api/email/candidates",
+    tags=["Gmail"],
+    summary="List Gmail Billing Candidates",
+    description=(
+        "Returns previously discovered billing email candidates from local SQLite storage. "
+        "Does not make live Gmail API calls. "
+        "Source label: 'gmail_candidate' for unconfirmed records."
+    ),
+)
+def list_gmail_candidates(
+    confirmed_only: bool = Query(default=False),
+) -> Dict[str, Any]:
+    """Return stored Gmail billing candidates."""
+    from backend.app.database import load_gmail_candidates
+    candidates = load_gmail_candidates(user_id=GMAIL_DEMO_USER, confirmed_only=confirmed_only)
+    return {
+        "candidates": candidates,
+        "total": len(candidates),
+        "data_source": "gmail_candidate",
+        "note": "These are billing email candidates, not confirmed subscriptions.",
+    }
+
+
+@app.post(
+    "/api/email/candidates/{message_id}/confirm",
+    tags=["Gmail"],
+    summary="Confirm a Gmail Billing Candidate as a Subscription",
+    description=(
+        "Promotes a Gmail-discovered billing candidate to a confirmed subscription record. "
+        "Requires explicit user action — never auto-confirmed."
+    ),
+)
+def confirm_gmail_candidate(message_id: str) -> Dict[str, Any]:
+    """Mark a Gmail billing candidate as user-confirmed."""
+    from backend.app.database import confirm_gmail_candidate as db_confirm
+    success = db_confirm(message_id=message_id, user_id=GMAIL_DEMO_USER)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "RESOURCE_NOT_FOUND",
+                "message": f"Candidate with message_id '{message_id}' not found.",
+            },
+        )
+    return {"confirmed": True, "message_id": message_id}
