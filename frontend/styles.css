@@ -56,6 +56,14 @@ body {
   min-height: 100vh;
 }
 
+body.drawer-open {
+  overflow: hidden;
+}
+
+[hidden] {
+  display: none !important;
+}
+
 /* App Shell */
 .app-layout {
   display: flex;
@@ -572,9 +580,31 @@ h3 {
   inset: 0;
   background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   z-index: 50;
   display: flex;
   justify-content: flex-end;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.drawer-overlay.open,
+.drawer-overlay:not([hidden]) {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.drawer-overlay[hidden],
+[hidden].drawer-overlay {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 .drawer {

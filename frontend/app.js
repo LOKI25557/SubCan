@@ -23,6 +23,25 @@ const $ = (id) => document.getElementById(id);
 // Utilities & UI Helpers
 // -----------------------------------------------------------------------------
 
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function sanitizeUrl(url) {
+  if (!url || typeof url !== "string") return null;
+  const trimmed = url.trim();
+  if (/^https?:\/\//i.test(trimmed)) {
+    return escapeHtml(trimmed);
+  }
+  return null;
+}
+
 function showNotice(message, type = "info") {
   const notice = $("notice");
   const msgEl = $("notice-msg");
@@ -50,8 +69,9 @@ async function api(url, options = {}) {
 }
 
 function badge(text, variant = "") {
-  const clean = String(text || "—").replaceAll("_", " ");
-  return `<span class="badge ${variant}">${clean}</span>`;
+  const clean = escapeHtml(String(text || "—").replaceAll("_", " "));
+  const safeVariant = escapeHtml(variant);
+  return `<span class="badge ${safeVariant}">${clean}</span>`;
 }
 
 function formatDate(isoStr) {
@@ -141,23 +161,28 @@ function renderRows() {
         }
       }
 
-      const costStr = sub.monthly_cost ? `$${sub.monthly_cost.toFixed(2)}/mo` : "—";
+      const costStr = typeof sub.monthly_cost === "number" ? `$${sub.monthly_cost.toFixed(2)}/mo` : "—";
       const lastUsed = formatDate(sub.last_used_at);
       const renewal = sub.renewal_date || "—";
+      const safeServiceName = escapeHtml(sub.service_name || "Unknown Service");
+      const safeSubId = escapeHtml(sub.subscription_id || "");
+      const safeLastUsed = escapeHtml(lastUsed);
+      const safeRenewal = escapeHtml(renewal);
+      const safeCost = escapeHtml(costStr);
 
       return `<tr>
         <td>
-          <strong>${sub.service_name}</strong>
-          <div class="sub-meta">${sub.subscription_id}</div>
+          <strong>${safeServiceName}</strong>
+          <div class="sub-meta">${safeSubId}</div>
         </td>
         <td>${statusBadge}</td>
-        <td>${lastUsed}</td>
-        <td>${renewal}</td>
-        <td><strong>${costStr}</strong></td>
+        <td>${safeLastUsed}</td>
+        <td>${safeRenewal}</td>
+        <td><strong>${safeCost}</strong></td>
         <td>${eligBadge}</td>
         <td>${workflowBadge}</td>
         <td>
-          <button class="button secondary small review-trigger-btn" data-id="${sub.subscription_id}">
+          <button class="button secondary small review-trigger-btn" data-id="${safeSubId}">
             Inspect
           </button>
         </td>
@@ -186,14 +211,43 @@ function updateCards() {
 // Drawer: Inspection, Approval Gate & Verification Trigger
 // -----------------------------------------------------------------------------
 
-function openDrawer(subscriptionId) {
-  const item = state.items.find((i) => i.subscription.subscription_id === subscriptionId);
-  const sub = item?.subscription || state.subscriptions.find((s) => s.subscription_id === subscriptionId);
-  if (!sub) return;
+function closeDrawer() {
+  const drawer = $("detail-drawer");
+  if (!drawer) return;
+  drawer.hidden = true;
+  drawer.style.display = "none";
+  drawer.setAttribute("aria-hidden", "true");
+  drawer.classList.remove("open");
+  document.body.classList.remove("drawer-open");
+}
 
-  $("detail-title").textContent = sub.service_name;
-  $("detail-subtitle").textContent = sub.subscription_id;
-  $("detail-eyebrow").textContent = item?.decision?.eligibility === "candidate" ? "ELIGIBLE CANCELLATION CANDIDATE" : "SUBSCRIPTION DETAILS";
+function openDrawer(target) {
+  if (!target) return;
+  const targetId = typeof target === "object" ? (target.subscription_id || target.id) : target;
+  if (!targetId || typeof targetId !== "string") return;
+
+  const item = state.items.find((i) => i.subscription?.subscription_id === targetId || i.subscription?.id === targetId);
+  const sub = item?.subscription || state.subscriptions.find((s) => s.subscription_id === targetId || s.id === targetId);
+  if (!sub) {
+    console.warn(`[SubCan] openDrawer: subscription '${targetId}' not found.`);
+    showNotice(`Subscription '${targetId}' could not be found.`, "error");
+    closeDrawer();
+    return;
+  }
+
+  // Populate title, subtitle, and eyebrow using verified object properties (safe textContent)
+  $("detail-title").textContent = sub.service_name || "Service Details";
+  $("detail-subtitle").textContent = sub.subscription_id || targetId;
+
+  let eyebrow = "SUBSCRIPTION DETAILS";
+  if (item?.decision?.eligibility === "candidate") {
+    eyebrow = "ELIGIBLE CANCELLATION CANDIDATE";
+  } else if (item?.decision?.eligibility === "needs_review") {
+    eyebrow = "MANUAL REVIEW REQUIRED";
+  } else if (item?.decision?.eligibility === "not_eligible") {
+    eyebrow = "INELIGIBLE ACCOUNT";
+  }
+  $("detail-eyebrow").textContent = eyebrow;
 
   const decision = item?.decision;
   const plan = item?.plan;
@@ -204,43 +258,88 @@ function openDrawer(subscriptionId) {
   let html = "";
 
   // 1. Overview metadata
+  const currencySymbol = sub.currency === "USD" ? "$" : (escapeHtml(sub.currency) || "$");
+  const cost = typeof sub.monthly_cost === "number" ? `${currencySymbol}${sub.monthly_cost.toFixed(2)}` : "—";
+  const billingCycle = escapeHtml(sub.billing_cycle || "monthly");
+  const renewal = escapeHtml(sub.renewal_date || "No renewal date");
+  const lastUsed = escapeHtml(formatDate(sub.last_used_at));
+  const workflowState = item?.final_status || "unreviewed";
+  const safeTermsUrl = sanitizeUrl(sub.cancellation_terms_url);
+
   html += `<div class="metric-card" style="background: var(--bg-elevated); margin-bottom: 0;">
     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px;">
-      <div><span class="sub-meta">MONTHLY BILLING</span><strong style="display:block; font-size: 16px;">$${sub.monthly_cost ? sub.monthly_cost.toFixed(2) : '0.00'} / mo</strong></div>
-      <div><span class="sub-meta">CURRENT RENEWAL</span><strong style="display:block; font-size: 16px;">${sub.renewal_date || 'No renewal date'}</strong></div>
-      <div><span class="sub-meta">LAST DETECTED STREAM</span><strong style="display:block; font-size: 14px;">${formatDate(sub.last_used_at)}</strong></div>
-      <div><span class="sub-meta">CURRENT WORKFLOW</span><div style="margin-top: 4px;">${badge(item?.final_status || 'not reviewed')}</div></div>
+      <div><span class="sub-meta">MONTHLY BILLING</span><strong style="display:block; font-size: 16px;">${cost}</strong></div>
+      <div><span class="sub-meta">BILLING CYCLE</span><strong style="display:block; font-size: 16px; text-transform: capitalize;">${billingCycle}</strong></div>
+      <div><span class="sub-meta">CURRENT RENEWAL</span><strong style="display:block; font-size: 14px;">${renewal}</strong></div>
+      <div><span class="sub-meta">LAST DETECTED ACTIVITY</span><strong style="display:block; font-size: 14px;">${lastUsed}</strong></div>
+      <div><span class="sub-meta">CURRENT WORKFLOW</span><div style="margin-top: 4px;">${badge(workflowState)}</div></div>
+      <div>
+        <span class="sub-meta">CANCELLATION POLICY</span>
+        <div style="margin-top: 4px; font-size: 13px;">
+          ${safeTermsUrl ? `<a href="${safeTermsUrl}" target="_blank" rel="noopener noreferrer" style="color: #60a5fa; text-decoration: underline;">View Terms ↗</a>` : `<span style="color: var(--text-muted);">None specified</span>`}
+        </div>
+      </div>
     </div>
   </div>`;
 
-  // 2. Decision Rationale & Consequences
+  // 2. Pre-evaluation info or Decision Rationale & Consequences
   if (decision) {
     html += `<div>
       <h3>Eligibility Decision</h3>
-      <p style="margin-top: 4px; font-size: 13px; color: var(--text-secondary);">${decision.reason}</p>
+      <p style="margin-top: 4px; font-size: 13px; color: var(--text-secondary);">${escapeHtml(decision.reason || "Evaluated")}</p>
       <div style="margin-top: 8px; font-size: 12px; color: var(--text-muted);">
-        Uncertainty Metric: <strong>${Math.round(decision.uncertainty * 100)}%</strong>
-        ${decision.uncertainty > 0.3 ? badge("High Uncertainty — Review Required", "warning") : badge("High Confidence", "success")}
+        Uncertainty Metric: <strong>${Math.round((decision.uncertainty || 0) * 100)}%</strong>
+        ${(decision.uncertainty || 0) > 0.3 ? badge("High Uncertainty — Review Required", "warning") : badge("High Confidence", "success")}
       </div>
     </div>`;
 
-    if (decision.data_deletion_risk || (plan && plan.consequences_warning)) {
+    if (decision.data_deletion_risk || sub.data_deletion_warning || (plan && plan.consequences_warning)) {
+      const warningText = escapeHtml(plan?.consequences_warning || "Provider policy dictates immediate and irreversible deletion of cloud libraries, playlists, and user assets upon cancellation.");
       html += `<div class="callout danger">
         <div class="callout-title">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           CRITICAL CONSEQUENCE: IMMEDIATE DATA DELETION
         </div>
-        <p style="font-size: 12px;">${plan?.consequences_warning || "Provider policy dictates immediate and irreversible deletion of cloud libraries and assets."}</p>
+        <p style="font-size: 12px;">${warningText}</p>
       </div>`;
     }
 
-    if (decision.pause_alternative_available) {
+    if (decision.pause_alternative_available || sub.pause_option_available) {
       html += `<div class="callout info">
         <div class="callout-title">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><rect width="4" height="12" x="10" y="6" rx="1"/></svg>
           BILLING PAUSE ALTERNATIVE AVAILABLE
         </div>
         <p style="font-size: 12px;">This provider permits a temporary billing freeze. Remember: A paused subscription is NOT cancelled.</p>
+      </div>`;
+    }
+  } else {
+    // If opened before run evaluation
+    html += `<div class="callout info">
+      <div class="callout-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        PRE-RUN INGESTION RECORD
+      </div>
+      <p style="font-size: 12px;">Ingested from provider connectors. Start an orchestration review run to evaluate inactivity rules and generate cancellation proposals.</p>
+    </div>`;
+
+    if (sub.data_deletion_warning) {
+      html += `<div class="callout danger">
+        <div class="callout-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          KNOWN CONSEQUENCE: IMMEDIATE DATA DELETION
+        </div>
+        <p style="font-size: 12px;">Connector metadata indicates cancellation triggers permanent data loss.</p>
+      </div>`;
+    }
+
+    if (sub.pause_option_available) {
+      html += `<div class="callout info">
+        <div class="callout-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><rect width="4" height="12" x="10" y="6" rx="1"/></svg>
+          BILLING PAUSE OPTION SUPPORTED
+        </div>
+        <p style="font-size: 12px;">Connector reports this service allows billing pause without account termination.</p>
       </div>`;
     }
   }
@@ -250,27 +349,37 @@ function openDrawer(subscriptionId) {
     <h3>Usage & Policy Evidence (${evidence.length} Items)</h3>
     <ul class="evidence-list" style="margin-top: 10px;">
       ${evidence.length
-        ? evidence.map((e) => `<li class="evidence-card">
-            <div class="evidence-meta">
-              <span class="badge info">${e.evidence_type}</span>
-              <span>Confidence: ${Math.round(e.confidence * 100)}% · ${formatDate(e.captured_at)}</span>
-            </div>
-            <p class="evidence-text">"${e.excerpt}"</p>
-            <div class="evidence-source">${e.source_url || "Synthetic mock reference"}</div>
-          </li>`).join("")
-        : `<li class="empty-state">No evidence records available.</li>`}
+        ? evidence.map((e) => {
+            const safeType = escapeHtml(e.evidence_type || "evidence");
+            const safeExcerpt = escapeHtml(e.excerpt || "No excerpt recorded");
+            const safeSource = sanitizeUrl(e.source_url)
+              ? `<a href="${sanitizeUrl(e.source_url)}" target="_blank" rel="noopener noreferrer" style="color: #60a5fa;">${escapeHtml(e.source_url)}</a>`
+              : escapeHtml(e.source_url || "Synthetic mock reference");
+            return `<li class="evidence-card">
+              <div class="evidence-meta">
+                <span class="badge info">${safeType}</span>
+                <span>Confidence: ${Math.round((e.confidence || 0) * 100)}% · ${escapeHtml(formatDate(e.captured_at))}</span>
+              </div>
+              <p class="evidence-text">"${safeExcerpt}"</p>
+              <div class="evidence-source">${safeSource}</div>
+            </li>`;
+          }).join("")
+        : `<li class="empty-state">${decision ? "No evidence records captured." : "Evidence collection executes during review runs."}</li>`}
     </ul>
   </div>`;
 
   // 4. Action & Verification Status (if already acted upon)
   if (action) {
+    const safeActionId = escapeHtml(action.action_id || "");
+    const safeObserved = escapeHtml(verif?.final_state_observed || "unknown");
+    const safeDetails = escapeHtml(verif?.details || "");
     html += `<div class="card" style="background: var(--bg-elevated); padding: 16px;">
       <h3>Action Attempt & Verification Status</h3>
       <div style="margin-top: 10px; font-size: 13px;">
-        <div>Action ID: <code class="sub-id-code">${action.action_id}</code></div>
-        <div>Action Execution: ${badge(action.status, action.status === "succeeded" ? "success" : "danger")}</div>
+        <div>Action ID: <code class="sub-id-code">${safeActionId}</code></div>
+        <div style="margin-top: 4px;">Action Execution: ${badge(action.status, action.status === "succeeded" ? "success" : "danger")}</div>
         <div style="margin-top: 4px;">Independent Verification: ${verif ? badge(verif.status, verif.status === "verified" ? "success" : "danger") : badge("Pending Independent Evidence", "warning")}</div>
-        ${verif ? `<div style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">Observed State: <strong>${verif.final_state_observed}</strong> — ${verif.details}</div>` : ""}
+        ${verif ? `<div style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">Observed State: <strong>${safeObserved}</strong> — ${safeDetails}</div>` : ""}
       </div>
       ${action.status === "succeeded" && (!verif || verif.status !== "verified") ? `
         <div style="margin-top: 14px;">
@@ -284,12 +393,14 @@ function openDrawer(subscriptionId) {
 
   // 5. Explicit Approval Action Gate (Screen C)
   if (plan && plan.status === "awaiting_approval") {
+    const safePlanService = escapeHtml(plan.service_name || sub.service_name || "");
+    const safePlanVersion = escapeHtml(plan.plan_version || "");
     html += `<div class="approval-gate-box">
       <div style="font-size: 11px; font-weight: 800; color: #f87171; letter-spacing: 0.1em; margin-bottom: 6px;">
         EXPLICIT HUMAN APPROVAL GATE
       </div>
       <p style="font-size: 13px; color: #fff;">
-        You are approving cancellation for <strong>${plan.service_name}</strong> (Plan: <code>${plan.plan_version}</code>).
+        You are approving cancellation for <strong>${safePlanService}</strong> (Plan: <code>${safePlanVersion}</code>).
       </p>
       <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
         Action will ONLY be authorized for this exact subscription. All other subscriptions remain strictly isolated.
@@ -306,7 +417,14 @@ function openDrawer(subscriptionId) {
   }
 
   $("detail-body").innerHTML = html;
-  $("detail-drawer").hidden = false;
+
+  // Make drawer visible, remove aria-hidden, add open class
+  const drawer = $("detail-drawer");
+  drawer.hidden = false;
+  drawer.style.display = "flex";
+  drawer.removeAttribute("aria-hidden");
+  drawer.classList.add("open");
+  document.body.classList.add("drawer-open");
 
   // Bind approval gate buttons
   $("drawer-approve-btn")?.addEventListener("click", () => handleDecision(plan, item, true));
@@ -316,8 +434,19 @@ function openDrawer(subscriptionId) {
   $("trigger-verify-btn")?.addEventListener("click", () => handleVerifyAction(action.action_id, sub));
 }
 
-$("close-detail").addEventListener("click", () => {
-  $("detail-drawer").hidden = true;
+// Drawer dismissal event listeners
+$("close-detail")?.addEventListener("click", closeDrawer);
+
+$("detail-drawer")?.addEventListener("click", (e) => {
+  if (e.target === $("detail-drawer")) {
+    closeDrawer();
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && $("detail-drawer") && !$("detail-drawer").hidden) {
+    closeDrawer();
+  }
 });
 
 // -----------------------------------------------------------------------------
@@ -445,6 +574,7 @@ async function loadRunSubscriptions() {
     renderRows();
   } catch (err) {
     showNotice(`Failed to load run details: ${err.message}`, "error");
+    closeDrawer();
   }
 }
 
@@ -454,7 +584,8 @@ async function loadSubscriptions() {
     renderRows();
   } catch (err) {
     $("loading").textContent = `Failed to load subscriptions: ${err.message}`;
-    showNotice(err.message, "error");
+    showNotice(`Failed to load subscriptions: ${err.message}`, "error");
+    closeDrawer();
   }
 }
 
@@ -581,5 +712,6 @@ $("search").addEventListener("input", renderRows);
 $("status-filter").addEventListener("change", renderRows);
 $("eligibility-filter").addEventListener("change", renderRows);
 
-// Initial boot
+// Initial deterministic boot: close drawer and load subscriptions
+closeDrawer();
 loadSubscriptions();

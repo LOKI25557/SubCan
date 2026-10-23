@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/dashboard/styles.css">
+  <link rel="stylesheet" href="/dashboard/styles.css?v=2.1">
 </head>
 <body>
   <div class="app-layout">
@@ -302,24 +302,24 @@
     </main>
 
     <!-- Slide-over Drawer for Subscription Details & Approval Gate -->
-    <aside id="detail-drawer" class="drawer-overlay" hidden>
+    <aside id="detail-drawer" class="drawer-overlay" hidden aria-hidden="true" style="display: none;">
       <div class="drawer" role="dialog" aria-modal="true" aria-labelledby="detail-title">
         <div class="drawer-header">
           <div>
-            <span id="detail-eyebrow" class="drawer-eyebrow">REVIEW CANDIDATE</span>
+            <span id="detail-eyebrow" class="drawer-eyebrow">SUBSCRIPTION DETAILS</span>
             <h2 id="detail-title">Service Details</h2>
-            <code id="detail-subtitle" class="sub-id-code">sub_id</code>
+            <code id="detail-subtitle" class="sub-id-code">—</code>
           </div>
           <button id="close-detail" class="icon-btn close-btn" aria-label="Close drawer">×</button>
         </div>
 
         <div id="detail-body" class="drawer-body">
-          <!-- Populated by JavaScript -->
+          <!-- Populated dynamically when a subscription is inspected -->
         </div>
       </div>
     </aside>
   </div>
 
-  <script src="/dashboard/app.js"></script>
+  <script src="/dashboard/app.js?v=2.1"></script>
 </body>
 </html>

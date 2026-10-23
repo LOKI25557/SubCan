@@ -217,6 +217,16 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+@app.middleware("http")
+async def add_no_cache_for_dashboard(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/dashboard"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
 app.mount(
     "/dashboard",
     StaticFiles(directory=Path(__file__).resolve().parents[2] / "frontend", html=True),
