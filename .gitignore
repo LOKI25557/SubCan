@@ -65,3 +65,4 @@ Thumbs.db
 reports/*.csv
 reports/*.pdf
 !reports/.gitkeep
+reports/subcan.db
