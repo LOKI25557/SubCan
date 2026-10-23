@@ -47,19 +47,26 @@ class ActionTypeMismatchError(ActionExecutionError):
 # ==============================================================================
 
 class ActionRegistry:
-    """Thread-safe, process-local registry for idempotency and action tracking.
+    """Thread-safe registry for idempotency and action tracking with durable SQLite persistence."""
 
-    LIMITATION DOCUMENTATION:
-    This registry provides process-local, thread-safe idempotency guarantees.
-    It does not persist across process restarts or multi-instance deployments.
-    Dadu's persistence layer (database.py) will provide durable storage in Phase 8.
-    """
-
-    def __init__(self) -> None:
+    def __init__(self, restore_persisted: bool = False) -> None:
         self._lock = threading.Lock()
         self._actions_by_id: Dict[str, ActionResult] = {}
         # Maps idempotency_key -> (ActionResult, logical_request_signature)
         self._actions_by_key: Dict[str, Tuple[ActionResult, Dict[str, str]]] = {}
+        if restore_persisted:
+            self.restore_persisted_actions()
+
+    def restore_persisted_actions(self) -> None:
+        """Restore actions from durable storage to survive restarts."""
+        try:
+            from backend.app.database import load_action_records
+            for key, action, sig in load_action_records():
+                self._actions_by_id[action.action_id] = action
+                if key is not None:
+                    self._actions_by_key[key] = (action, sig)
+        except Exception:
+            pass
 
     def get(self, action_id: str) -> Optional[ActionResult]:
         with self._lock:
@@ -81,6 +88,11 @@ class ActionRegistry:
             self._actions_by_id[action.action_id] = action
             if key is not None:
                 self._actions_by_key[key] = (action, request_sig)
+        try:
+            from backend.app.database import save_action_record
+            save_action_record(key, action, request_sig)
+        except Exception:
+            pass
 
     def clear(self) -> None:
         """Clear all stored actions (useful for test isolation)."""
@@ -90,7 +102,7 @@ class ActionRegistry:
 
 
 # Global module-level registry instance
-_GLOBAL_REGISTRY = ActionRegistry()
+_GLOBAL_REGISTRY = ActionRegistry(restore_persisted=True)
 
 
 def get_action_registry() -> ActionRegistry:

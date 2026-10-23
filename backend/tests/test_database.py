@@ -54,3 +54,100 @@ def test_dashboard_route_and_subscription_data_are_available():
         "sub_tc1_cinevault",
         "sub_tc2_audiocloud",
     }
+
+
+def test_action_records_and_idempotency_survive_restart(tmp_path, monkeypatch):
+    """Test that actions and idempotency records survive application process restarts."""
+    from backend.app.actions import (
+        ActionRegistry,
+        IdempotencyConflictError,
+        execute_plan,
+    )
+    from backend.app.models import Approval, ApprovalStatus
+
+    database_path = tmp_path / "subcan_idemp.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
+
+    subscriptions, evidence_map = load_fixture_data(["sub_tc1_cinevault"])
+    as_of = datetime(2026, 10, 23, 8, 0, tzinfo=timezone.utc)
+    _, context = initialize_orchestration_run(
+        subscriptions=subscriptions,
+        evidence_map=evidence_map,
+        as_of=as_of,
+    )
+    tc1_state = context["sub_tc1_cinevault"]
+    plan = tc1_state.plan
+
+    approval = Approval(
+        approval_id="appr_persist_01",
+        plan_id=plan.plan_id,
+        subscription_id=plan.subscription_id,
+        service_name=plan.service_name,
+        plan_version=plan.plan_version,
+        status=ApprovalStatus.APPROVED,
+        decided_at=as_of,
+    )
+
+    # 1. First process executes with idempotency key
+    reg1 = ActionRegistry(restore_persisted=False)
+    action1 = execute_plan(
+        plan=plan,
+        approval=approval,
+        idempotency_key="idemp_key_persisted_test",
+        decision=tc1_state.decision,
+        registry=reg1,
+        as_of=as_of,
+    )
+    assert action1.status.value == "succeeded"
+
+    # 2. Simulate process restart by instantiating fresh registry restoring from SQLite
+    reg2 = ActionRegistry(restore_persisted=True)
+    assert reg2.get(action1.action_id) is not None
+    assert reg2.get_by_idempotency_key("idemp_key_persisted_test") is not None
+
+    # 3. Repeated request returns identical action result without executing duplicate action
+    replayed_action = execute_plan(
+        plan=plan,
+        approval=approval,
+        idempotency_key="idemp_key_persisted_test",
+        decision=tc1_state.decision,
+        registry=reg2,
+        as_of=as_of,
+    )
+    assert replayed_action.action_id == action1.action_id
+
+    # 4. Reusing key for a different plan raises IdempotencyConflictError even after restart
+    different_plan = plan.model_copy(update={"plan_id": "plan_different_999"})
+    import pytest
+    with pytest.raises(IdempotencyConflictError):
+        execute_plan(
+            plan=different_plan,
+            approval=approval,
+            idempotency_key="idemp_key_persisted_test",
+            registry=reg2,
+            as_of=as_of,
+        )
+
+
+def test_test_results_persistence(tmp_path, monkeypatch):
+    """Test saving and listing test results in the database."""
+    from backend.app.database import list_test_results, save_test_result
+
+    database_path = tmp_path / "subcan_test_results.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
+
+    save_test_result(
+        test_id="TC1_CINEVAULT",
+        scenario_id="TC1",
+        status="PASSED",
+        expected="Verified Cancelled with renewal disabled",
+        actual="Verified Cancelled with renewal disabled",
+        evidence_summary="Playback log > 130 days, provider billing terminated",
+        details="Standard cancellation completed and independently verified",
+    )
+
+    results = list_test_results()
+    assert len(results) == 1
+    assert results[0]["test_id"] == "TC1_CINEVAULT"
+    assert results[0]["status"] == "PASSED"
+    assert results[0]["scenario_id"] == "TC1"

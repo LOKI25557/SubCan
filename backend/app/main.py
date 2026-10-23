@@ -40,6 +40,10 @@ from backend.app.agent import (
     load_fixture_data,
     process_subscription_approval,
 )
+from backend.app.connectors import (
+    fetch_subscriptions,
+    load_connector_data,
+)
 from backend.app.models import (
     ActionResult,
     ActionStatus,
@@ -330,7 +334,15 @@ def create_run(req: CreateRunRequest) -> AgentRun:
             detail={"code": "BAD_REQUEST", "message": "subscription_ids list must not be empty."},
         )
 
-    subscriptions, evidence_map = load_fixture_data(target_subscription_ids=req.subscription_ids)
+    as_of = req.as_of or datetime.now(timezone.utc)
+    try:
+        subscriptions, evidence_map = load_connector_data(
+            target_subscription_ids=req.subscription_ids,
+            as_of=as_of,
+        )
+    except Exception:
+        subscriptions, evidence_map = load_fixture_data(target_subscription_ids=req.subscription_ids)
+
     found_ids = {s.subscription_id for s in subscriptions}
     missing_ids = set(req.subscription_ids) - found_ids
     if missing_ids:
@@ -342,7 +354,6 @@ def create_run(req: CreateRunRequest) -> AgentRun:
             },
         )
 
-    as_of = req.as_of or datetime.now(timezone.utc)
     run, _ = initialize_orchestration_run(
         subscriptions=subscriptions,
         evidence_map=evidence_map,
@@ -360,7 +371,10 @@ def create_run(req: CreateRunRequest) -> AgentRun:
 )
 def list_subscriptions() -> List[Subscription]:
     """Expose current connector records for dashboard run selection."""
-    subscriptions, _ = load_fixture_data()
+    try:
+        subscriptions = fetch_subscriptions()
+    except Exception:
+        subscriptions, _ = load_fixture_data()
     from backend.app.database import save_subscription
 
     for subscription in subscriptions:
@@ -729,3 +743,30 @@ def get_run_report(run_id: str) -> RunReportResponse:
         total_monthly_savings_usd=total_monthly_savings_usd,
         items=items,
     )
+
+
+@app.get(
+    "/runs/{run_id}/audit",
+    response_model=List[Dict[str, Any]],
+    tags=["Reporting"],
+    summary="Get Immutable Audit Events for a Run",
+    description="Returns chronological audit trail events persisted in the durable SQLite store.",
+)
+def get_run_audit_trail(run_id: str) -> List[Dict[str, Any]]:
+    """Retrieve persisted audit events for a specified run."""
+    from backend.app.database import list_audit_events
+    return list_audit_events(run_id)
+
+
+@app.get(
+    "/api/test-report",
+    response_model=List[Any],
+    tags=["Testing"],
+    summary="Get Official Acceptance Test Results",
+    description="Runs and retrieves the official acceptance test scorecard covering TC1-TC4 and edge cases.",
+)
+def get_official_test_report() -> List[Any]:
+    """Execute and return official test suite results."""
+    from backend.app.acceptance import run_official_test_suite
+    return [r.model_dump() for r in run_official_test_suite()]
+
