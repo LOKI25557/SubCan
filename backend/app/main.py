@@ -68,6 +68,7 @@ from backend.app.models import (
     Subscription,
     SubscriptionCandidate,
     SubscriptionCreateRequest,
+    SubscriptionStatus,
     SubscriptionUpdateRequest,
     VerificationResult,
     VerificationStatus,
