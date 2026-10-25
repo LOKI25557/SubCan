@@ -71,7 +71,7 @@ def test_invalid_subscription_status_rejected():
             service_name="TestStream",
             status="active_and_cancelled",  # type: ignore[arg-type]
         )
-    assert "Input should be 'active', 'cancelled' or 'unknown'" in str(exc_info.value)
+    assert "Input should be 'active'" in str(exc_info.value)
 
 
 def test_extra_fields_forbidden_on_subscription():

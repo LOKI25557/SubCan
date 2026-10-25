@@ -45,7 +45,7 @@ def test_run_persists_and_restores_from_sqlite(tmp_path, monkeypatch):
 def test_dashboard_route_and_subscription_data_are_available():
     client = TestClient(app)
     page = client.get("/dashboard/")
-    subscriptions = client.get("/subscriptions")
+    subscriptions = client.get("/subscriptions?source=demo")
 
     assert page.status_code == 200
     assert "Subscription review" in page.text

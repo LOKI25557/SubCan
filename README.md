@@ -2,7 +2,7 @@
 
 > **Detect. Decide. Approve. Cancel. Verify.**
 
-SubCan is an auditable, AI-assisted FinTech workflow engine that identifies unused recurring streaming subscriptions (&ge; 3 calendar months inactive), gathers and normalizes usage logs and cancellation terms, determines cancellation eligibility using deterministic rules, presents consequences and data-loss warnings, strictly enforces an explicit per-subscription human approval gate, coordinates safe cancellation actions, and independently verifies provider renewal states.
+SubCan is an auditable, AI-assisted FinTech workflow engine that identifies unused recurring subscriptions (≥ 3 calendar months inactive), gathers and normalizes usage logs and cancellation terms, determines cancellation eligibility using deterministic rules, presents consequences and data-loss warnings, strictly enforces an explicit per-subscription human approval gate, coordinates safe cancellation actions, and independently verifies provider renewal states.
 
 ---
 
@@ -13,28 +13,31 @@ SubCan is an auditable, AI-assisted FinTech workflow engine that identifies unus
                       |         SubCan Integrated Agent Workflow       |
                       +------------------------------------------------+
                                               |
- 1. DETECT    [Chinmay]    Ingest mock streaming subscriptions & collect usage/policy evidence
-                           via thread-safe ConnectorRegistry (5 mock provider connectors)
+ 1. DISCOVER  [Chinmay/Loki] Ingest multi-channel subscriptions:
+                             - Thread-safe ConnectorRegistry (5 mock streaming providers)
+                             - Email Receipt Discovery via Google OAuth 2.0 PKCE & HTML parser
+                             - Manual inventory entry modal with category tagging
                                               |
                                               v
- 2. DECIDE    [Loki]       Evaluate strict 3-calendar-month inactivity rule with day clamping;
-                           fail closed on missing, contradictory, or future-dated logs
+ 2. DECIDE    [Loki]         Evaluate strict 3-calendar-month inactivity rule with day clamping;
+                             fail closed on missing, contradictory, or future-dated logs
                                               |
                                               v
- 3. APPROVE   [Loki/Dadu]  Versioned plan construction; explicit disclosure of data-loss warnings
-                           and pause alternatives; strict per-subscription approval gate
+ 3. APPROVE   [Loki/Dadu]    Versioned plan construction; explicit disclosure of data-loss warnings
+                             and pause alternatives; strict per-subscription approval gate;
+                             safe manual guidance for restricted providers (Bloomberg, Adobe, Gym)
                                               |
                                               v
- 4. CANCEL    [Loki]       Execute authorized cancellation steps ONLY for approved plans;
-                           enforce idempotent replay protection across process restarts
+ 4. CANCEL    [Loki]         Execute authorized cancellation steps ONLY for approved plans;
+                             enforce idempotent replay protection across process restarts
                                               |
                                               v
- 5. VERIFY    [Loki]       Independently poll & verify provider renewal state (ActionStatus.SUCCEEDED
-                           is NEVER treated as cancellation; pauses are NEVER reported cancelled)
+ 5. VERIFY    [Loki]         Independently poll & verify provider renewal state (ActionStatus.SUCCEEDED
+                             is NEVER treated as cancellation; pauses are NEVER reported cancelled)
                                               |
                                               v
- 6. PERSIST   [Dadu]       Durable SQLite storage for runs, subscriptions, audit events,
-                           action records, and official test results (restores on restart)
+ 6. PERSIST   [Dadu]         Durable SQLite storage for runs, subscriptions, email accounts,
+                             candidates, audit events, action records, and test results
 ```
 
 ### Safety Invariants
@@ -42,7 +45,8 @@ SubCan is an auditable, AI-assisted FinTech workflow engine that identifies unus
 2. **Action execution success is not cancellation:** An action status of `succeeded` indicates only that the execution script ran without crashing. Independent verification of provider renewal state is mandatory before marking a subscription as `verified_cancelled`.
 3. **No fabricated activity dates:** Missing usage history is strictly represented as `null`/`unknown`, failing closed to manual review (`needs_review`).
 4. **Pause alternatives remain distinct:** A pause or billing freeze option is strictly recognized as distinct from cancellation; a paused subscription is never reported as cancelled.
-5. **Synthetic and mock safety:** The system only interacts with synthetic test fixtures and organizer-authorized mock sites. Real user credentials, passwords, or payment details are never stored or bypassed.
+5. **Safe restricted provider handling:** For providers requiring phone calls, retention funnels, 2FA/CAPTCHA, or certified mail (e.g. Bloomberg, Gyms, Adobe), SubCan NEVER bypasses security controls; instead, it generates verified manual cancellation guidance.
+6. **Synthetic and mock safety:** The system defaults to safe mock fixtures and demo fallbacks. Real user credentials, passwords, or payment details are never stored or bypassed.
 
 ---
 
@@ -50,9 +54,9 @@ SubCan is an auditable, AI-assisted FinTech workflow engine that identifies unus
 
 | Member | Primary Modules | Key Responsibilities & Deliverables |
 |---|---|---|
-| **Loki** | `backend/app/agent.py`<br>`backend/app/rules.py`<br>`backend/app/planner.py`<br>`backend/app/approvals.py`<br>`backend/app/actions.py`<br>`backend/app/verification.py`<br>`backend/app/main.py`<br>`backend/app/acceptance.py` | Orchestration pipeline, calendar-month inactivity rules, plan generation, fail-closed approval gate, safe action coordination, independent renewal verification, FastAPI REST endpoints, and official acceptance test suite. |
+| **Loki** | `backend/app/agent.py`<br>`backend/app/rules.py`<br>`backend/app/planner.py`<br>`backend/app/approvals.py`<br>`backend/app/actions.py`<br>`backend/app/verification.py`<br>`backend/app/email/` (`oauth.py`, `parser.py`, `service.py`)<br>`backend/app/main.py`<br>`backend/app/acceptance.py` | Orchestration pipeline, calendar-month inactivity rules, plan generation, fail-closed approval gate, safe action coordination, independent renewal verification, Google OAuth 2.0 PKCE email discovery, billing receipt parser, restricted provider guidance, and FastAPI REST endpoints. |
 | **Chinmay** | `backend/app/connectors/` (`base.py`, `registry.py`, `services.py`, `http.py`, `fixture.py`, `normalization.py`, `exceptions.py`) | Mock streaming connectors (CineVault, AudioCloud, FitStream, MovieMax, GameStream), ISO timestamp normalization, evidence extraction, retry/timeout error handling, and `load_connector_data()` ingestion interface. |
-| **Dadu** | `backend/app/database.py`<br>`frontend/` (`index.html`, `app.js`, `styles.css`) | Durable SQLite persistence (`runs`, `subscriptions`, `run_subscriptions`, `audit_events`, `action_records`, `test_results`), restart recovery, and control center dashboard UI. |
+| **Dadu** | `backend/app/database.py`<br>`frontend/` (`index.html`, `app.js`, `styles.css`) | Durable SQLite persistence (`runs`, `subscriptions`, `email_accounts`, `subscription_candidates`, `audit_events`, `action_records`, `test_results`), restart recovery, and control center dashboard UI. |
 
 ---
 
@@ -71,7 +75,7 @@ SubCan is an auditable, AI-assisted FinTech workflow engine that identifies unus
 
 ```
 SubCan/
-├── .env.example                       # Environment configuration template
+├── .env.example                       # Environment configuration template (with Google OAuth)
 ├── .gitignore                         # Git hygiene rules
 ├── README.md                          # Full system documentation & demo instructions
 ├── pytest.ini                         # Pytest configuration
@@ -100,23 +104,32 @@ SubCan/
     │   ├── approvals.py               # Human-in-the-loop explicit approval validator
     │   ├── actions.py                 # Safe action coordination & idempotency registry
     │   ├── verification.py            # Independent renewal verification check
-    │   ├── database.py                # Durable SQLite persistence & event logger
+    │   ├── database.py                # Durable SQLite persistence & schema migrations
     │   ├── acceptance.py              # Official acceptance test suite runner (TC1-TC4)
-    │   └── connectors/                # Chinmay's data connectors & normalization
+    │   ├── connectors/                # Chinmay's data connectors & normalization
+    │   └── email/                     # Loki's email discovery subsystem
+    │       ├── __init__.py            # Package exports
+    │       ├── oauth.py               # Google OAuth 2.0 PKCE flow & demo fallback
+    │       ├── parser.py              # Sanitized HTML/text billing receipt parser
+    │       └── service.py             # Mailbox sync & candidate promotion service
     └── tests/
-        ├── test_health.py             # System health & OpenAPI docs tests (3)
-        ├── test_models.py             # Schema validation, enums, & fixture compliance (19)
-        ├── test_rules.py              # 3-month calendar rules, boundary, contradictory logs (22)
-        ├── test_planner.py            # Proposal construction & consequence disclosures (14)
-        ├── test_approvals.py          # Human approval gate fail-closed validation (17)
         ├── test_actions.py            # Action execution & idempotency tests (16)
-        ├── test_verification.py       # Independent verification separation tests (11)
         ├── test_agent.py              # Workflow orchestration & lifecycle tests (14)
-        ├── test_connectors.py         # Mock connectors, retries, extraction tests (36)
-        ├── test_database.py           # SQLite persistence & restart recovery tests (4)
         ├── test_api.py                # FastAPI REST endpoint integration tests (15)
+        ├── test_approvals.py          # Human approval gate fail-closed validation (17)
+        ├── test_connectors.py         # Mock connectors, retries, extraction tests (36)
         ├── test_dashboard_ui.py       # Dashboard UI rendering, drawer lifecycle, & XSS tests (12)
-        └── test_official_acceptance.py # Official TC1-TC4 and edge cases acceptance test (1)
+        ├── test_database.py           # SQLite persistence & restart recovery tests (4)
+        ├── test_e2e_scenarios.py      # End-to-end 17 mandatory acceptance scenario tests (17)
+        ├── test_email_discovery.py    # Email OAuth, parser, sanitization, sync tests (8)
+        ├── test_health.py             # System health & OpenAPI docs tests (3)
+        ├── test_manual_subscriptions.py # Manual entry CRUD, validation, tenant isolation (6)
+        ├── test_models.py             # Schema validation, enums, & fixture compliance (19)
+        ├── test_official_acceptance.py # Official TC1-TC4 and edge cases acceptance test (1)
+        ├── test_planner.py            # Proposal construction & consequence disclosures (14)
+        ├── test_restricted_connector.py # Safe guidance for non-standard providers (2)
+        ├── test_rules.py              # 3-month calendar rules, boundary, contradictory logs (22)
+        └── test_verification.py       # Independent verification separation tests (11)
 ```
 
 ---
@@ -157,6 +170,16 @@ Key environment variables:
 - `DATABASE_URL`: SQLite connection URI (default: `sqlite:///./reports/subcan.db`).
 - `APP_HOST`: Host interface (default: `127.0.0.1`).
 - `APP_PORT`: Server port (default: `8000`).
+- `GOOGLE_CLIENT_ID`: Google OAuth 2.0 Client ID (optional; leaves system in Safe Demo Fallback mode if unset).
+- `GOOGLE_CLIENT_SECRET`: Google OAuth 2.0 Client Secret (optional).
+- `GOOGLE_REDIRECT_URI`: OAuth callback URI (default: `http://127.0.0.1:8000/api/email/oauth/callback`).
+
+#### Google OAuth 2.0 Setup (Live Mode)
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
+2. Create or select a project and configure the OAuth consent screen with scope `https://www.googleapis.com/auth/gmail.readonly`.
+3. Create OAuth 2.0 Client IDs (Web application) with Authorized Redirect URI: `http://127.0.0.1:8000/api/email/oauth/callback`.
+4. Populate `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env`.
+5. *Note:* If left blank or unset, SubCan automatically operates in **Safe Demo Fallback Mode**, presenting realistic synthetic billing emails (e.g. GitHub Copilot, The New York Times, Dropbox Plus) without requiring external credentials.
 
 ---
 
@@ -180,7 +203,11 @@ uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 | Method | Endpoint | Description | Primary Safety Rule |
 |---|---|---|---|
 | `GET` | `/health` | Service health status and metadata | Verifies operational readiness |
-| `GET` | `/subscriptions` | Ingest connector-provided subscriptions | Ingests from registry; persists standalone records |
+| `GET` | `/subscriptions` | Ingest connector & user inventory subscriptions | Merges connector fixtures with user-scoped entries |
+| `POST` | `/subscriptions` | Add manual subscription record | User-scoped tenant isolation; validates non-blank name |
+| `GET` | `/subscriptions/{id}` | Retrieve subscription details | Tenant-isolated lookup (404 on cross-tenant access) |
+| `PUT` | `/subscriptions/{id}` | Update manual subscription fields | Scoped to owner tenant |
+| `DELETE` | `/subscriptions/{id}` | Soft-delete / archive subscription | Sets `is_archived=True`; preserves audit integrity |
 | `POST` | `/runs` | Initiate new AI-agent orchestration run | Analysis only; NEVER triggers cancellation |
 | `GET` | `/runs/{run_id}` | Retrieve run status and aggregated summary | Inspects orchestration lifecycle state |
 | `GET` | `/runs/{run_id}/subscriptions` | Detailed subscription context, evidence, plans | Returns complete review items for UI |
@@ -189,11 +216,68 @@ uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 | `POST` | `/actions/{action_id}/verify` | Trigger independent renewal verification | Action success != verification; re-checks renewal |
 | `GET` | `/runs/{run_id}/report` | Audit and financial reconciliation report | Calculates verified savings and item status |
 | `GET` | `/runs/{run_id}/audit` | Immutable SQLite audit events log | Chronological timeline of decisions & actions |
-| `GET` | `/api/test-report` | Live scorecard for official test scenarios | Executes TC1-TC4 and edge cases |
+| `GET` | `/api/email/oauth/url` | Generate Google OAuth 2.0 PKCE auth URL | Includes CSRF state token; demo fallback if unconfigured |
+| `GET` | `/api/email/oauth/callback` | OAuth redirect callback handler | Validates CSRF state, exchanges tokens, links account |
+| `GET` | `/api/email/status` | Current email connection and sync status | Returns connected email and candidate count |
+| `POST` | `/api/email/disconnect` | Revoke tokens and disconnect email | Cleanly revokes Google tokens and drops DB records |
+| `POST` | `/api/email/sync` | Sync mailbox for billing receipts | Sanitizes HTML against XSS; extracts candidates |
+| `GET` | `/api/email/candidates` | List discovered candidate subscriptions | Filterable by review status (`pending`, `confirmed`) |
+| `POST` | `/api/email/candidates/{id}/confirm` | Promote candidate to unified inventory | Promotes candidate and links original email evidence |
+| `POST` | `/api/email/candidates/{id}/dismiss` | Dismiss discovered candidate | Marks candidate dismissed without creating subscription |
+| `GET` | `/services/{service_id}/manual-guide` | Safe guidance for restricted providers | Delivers portal links, phone numbers, and steps |
+| `GET` | `/api/test-report` | Live scorecard for official test scenarios | Executes TC1-TC4 and edge cases live |
 
 ---
 
-## 8. Official Acceptance Test Scenarios Walkthrough
+## 8. Google OAuth 2.0 & Gmail Discovery Configuration
+
+SubCan supports discovery of recurring subscriptions directly from billing, invoice, and renewal receipts in a connected Gmail mailbox.
+
+### Google Cloud Console Setup:
+1. **Create or Select Project:** Visit the [Google Cloud Console](https://console.cloud.google.com/) and create a project (e.g. `SubCan-Discovery`).
+2. **Enable Gmail API:** Go to **APIs & Services** > **Library**, search for **Gmail API**, and click **Enable**.
+3. **Configure OAuth Consent Screen:**
+   - Under **APIs & Services** > **OAuth consent screen**, choose **External**.
+   - Set **App name** to `SubCan` and provide your support email.
+   - Under **Scopes**, click **Add or Remove Scopes** and add:
+     `https://www.googleapis.com/auth/gmail.readonly` (Read-only access to messages and metadata).
+   - Under **Test Users**, add your personal or test Gmail address.
+4. **Create OAuth 2.0 Client Credentials:**
+   - Go to **APIs & Services** > **Credentials** > **Create Credentials** > **OAuth client ID**.
+   - Select **Application type:** `Web application`.
+   - Name: `SubCan Web Client`.
+   - Under **Authorized redirect URIs**, add the exact callback URI:
+     `http://127.0.0.1:8000/api/email/oauth/callback`
+5. **Configure Local Environment:**
+   Copy `.env.example` to `.env` in the repository root:
+   ```bash
+   cp .env.example .env
+   ```
+   Add your Google OAuth credentials:
+   ```ini
+   GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=your_client_secret
+   GOOGLE_REDIRECT_URI=http://127.0.0.1:8000/api/email/oauth/callback
+   ```
+
+### Safe Demo Fallback Mode:
+When `GOOGLE_CLIENT_ID` or `GOOGLE_CLIENT_SECRET` are omitted, blank, or placeholder values, SubCan automatically operates in **Safe Demo Fallback mode**:
+- Uses realistic synthetic billing emails (e.g. GitHub Copilot, The New York Times, Dropbox Plus).
+- Never contacts Google Cloud endpoints or attempts live token exchange.
+- Clearly flags accounts and candidates as `Demo Mock` in both the API and dashboard.
+- Enables safe local end-to-end evaluation without requiring cloud credentials.
+
+### Security & Privacy Safeguards:
+1. **Least Privilege Scope:** Requests strictly `https://www.googleapis.com/auth/gmail.readonly`. SubCan cannot send, modify, or delete emails.
+2. **PKCE & CSRF Defense:** Uses high-entropy RFC 7636 S256 PKCE code challenges and cryptographically secure state tokens to prevent CSRF and authorization code interception attacks.
+3. **HTML Sanitization:** Raw email content is stripped of scripts, iframes, styles, and event handlers to prevent XSS.
+4. **No Inferred Activity:** A billing receipt arrival date establishes billing provenance only; it is **never** used to establish active user streaming or service usage (`detected_last_used` remains `None`).
+5. **No Automatic Cancellation:** Subscriptions discovered via email are placed in a Candidate Review inbox requiring explicit human confirmation before promotion to inventory.
+6. **No Token Exposure:** Tokens are stored server-side in SQLite and are never logged, printed, or sent to frontend clients.
+
+---
+
+## 9. Official Acceptance Test Scenarios Walkthrough
 
 The system includes automated tests and a live UI scorecard for the four official scenarios in `fixtures/subscriptions.json`:
 
@@ -222,57 +306,50 @@ The system includes automated tests and a live UI scorecard for the four officia
 
 ---
 
-## 9. Test Suite Execution & Verification
+## 10. Test Suite Execution & Verification
 
-To run the complete automated test suite across all 13 modules:
+To run the complete automated test suite across all 18 modules:
 
 ```bash
-pytest -v
+.\.venv\Scripts\pytest -q
 ```
 
 ### Actual Verified Test Results
 
 ```
-============================= test session starts =============================
-platform win32 -- Python 3.13.3, pytest-9.0.3, pluggy-1.6.0
-rootdir: C:\Users\Lokesh\OneDrive\Desktop\Projects\SubCan
-configfile: pytest.ini
-testpaths: backend/tests
-plugins: anyio-4.13.0, asyncio-1.4.0
-
-backend/tests/test_actions.py ................                           [  8%]
-backend/tests/test_agent.py ..............                               [ 16%]
-backend/tests/test_api.py ...............                                [ 24%]
-backend/tests/test_approvals.py .................                        [ 33%]
-backend/tests/test_connectors.py ....................................    [ 53%]
-backend/tests/test_dashboard_ui.py ............                          [ 59%]
-backend/tests/test_database.py ....                                      [ 61%]
-backend/tests/test_health.py ...                                         [ 63%]
-backend/tests/test_models.py ...................                         [ 73%]
-backend/tests/test_official_acceptance.py .                              [ 74%]
-backend/tests/test_planner.py ..............                             [ 82%]
-backend/tests/test_rules.py ......................                       [ 94%]
-backend/tests/test_verification.py ...........                           [100%]
-
-============================ 184 passed in 7.74s ==============================
+........................................................................ [ 30%]
+........................................................................ [ 61%]
+........................................................................ [ 92%]
+..................                                                       [100%]
+============================== warnings summary ===============================
+234 passed, 2 warnings in 215.78s
 ```
 
-- **Total Tests:** 184
-- **Passed:** 184 (100%)
+- **Total Tests:** 234
+- **Passed:** 234 (100%)
 - **Failed:** 0
 - **Skipped:** 0
+- **Regression Count:** 0
 
 ---
 
-## 10. Step-by-Step Live Demonstration Walkthrough
+## 11. Step-by-Step Live Demonstration Walkthrough
 
-1. **Start the API:** Run `uvicorn backend.app.main:app --reload` and navigate to [http://127.0.0.1:8000/dashboard/](http://127.0.0.1:8000/dashboard/).
-2. **Review Ingested Accounts:** Notice all 5 connector-discovered subscriptions (CineVault, AudioCloud, FitStream, MovieMax, GameStream) populated with statuses and renewal dates.
-3. **Start an Orchestration Review Run:** Click **Start review run**. Observe the metrics update: 4 candidates identified (&ge; 3 calendar months inactive).
-4. **Inspect Consequence Warnings (TC2):** Click **Inspect** on `AudioCloud Mock Streaming`. Observe the red callout: `"CRITICAL CONSEQUENCE: IMMEDIATE DATA DELETION"`.
-5. **Decline Cancellation (Preserve Data):** Click **Keep Subscription**. Notice status immediately changes to `Kept Active`, with zero actions executed.
-6. **Approve Eligible Plan (TC1):** Click **Inspect** on `CineVault Mock Streaming`. Click **Approve Cancellation**. Observe the action executes and transitions to `Action Executed (Pending Verif)`.
-7. **Trigger Independent Verification:** Click **Trigger Independent Renewal Verification Check**. Observe independent provider polling confirms termination; status transitions to **Verified Cancelled**.
-8. **Verify Isolation (TC4):** Notice that `GameStream Mock Pass` remains completely untouched and pending approval.
-9. **Inspect Audit & Reconciliation:** Switch to the **Audit & Reconciliation** tab. View the calculated recurring monthly savings ($14.99/mo) and inspect the immutable chronological SQLite audit trail.
-10. **Run Acceptance Scorecard (Screen E):** Switch to the **Acceptance Test Suite** tab and click **Execute Official Acceptance Suite**. Watch live execution pass all 9 test scenarios (TC1 - TC4 and edge cases) with 100% green checkmarks.
+1. **Start the API & Dashboard:** Run `uvicorn backend.app.main:app --reload` and open [http://127.0.0.1:8000/dashboard/](http://127.0.0.1:8000/dashboard/).
+2. **Review Ingested Accounts:** Notice all 5 connector-discovered subscriptions (CineVault, AudioCloud, FitStream, MovieMax, GameStream) populated with statuses, renewal dates, and clear `Demo Mock` provenance badges.
+3. **Add a Manual Subscription:** Click **+ Add Subscription**. Fill in `Notion Plus`, `$10.00/mo`, category `Software`, and click **Save Subscription**. Observe it instantly appears with a `Manual` provenance badge.
+4. **Email Discovery & Receipt Parsing:** Switch to the **Email Discovery** tab.
+   - If Google OAuth credentials are configured in `.env`, the button reads **Connect Gmail Account** and redirects to Google's authorization consent screen.
+   - If unconfigured, the button reads **Connect Demo Mailbox (Mock)** and connects a simulated demo mailbox.
+   - Click **Sync Billing Emails** to scan messages and extract subscription candidates.
+   - Review discovered candidates: examine detected amounts, renewal dates, and sanitised email snippets.
+   - Click **Confirm** to promote a candidate into the unified inventory (with linked email evidence) or **Dismiss** to reject a false positive.
+5. **Start an Orchestration Review Run:** Switch back to the **Active Subscriptions** tab and click **Start review run**. Observe the metrics update: candidates identified (≥ 3 calendar months inactive).
+6. **Inspect Consequence Warnings (TC2):** Click **Inspect** on `AudioCloud Mock Streaming`. Observe the red callout: `"CRITICAL CONSEQUENCE: IMMEDIATE DATA DELETION"`.
+7. **Decline Cancellation (Preserve Data):** Click **Keep Subscription**. Notice status immediately changes to `Kept Active`, with zero actions executed.
+8. **Approve Eligible Plan (TC1):** Click **Inspect** on `CineVault Mock Streaming`. Click **Approve Cancellation**. Observe the action executes and transitions to `Action Executed (Pending Verif)`.
+9. **Trigger Independent Verification:** Click **Trigger Independent Renewal Verification Check**. Observe independent provider polling confirms termination; status transitions to **Verified Cancelled**.
+10. **Verify Isolation (TC4):** Notice that `GameStream Mock Pass` remains completely untouched and pending approval.
+11. **Restricted Provider Guidance:** Click **Inspect** on any restricted service (or call `GET /services/bloomberg/manual-guide`). View the verified step-by-step human guide, support phone number, and direct cancellation portal link.
+12. **Inspect Audit & Reconciliation:** Switch to the **Audit & Reconciliation** tab. View the calculated recurring monthly savings and inspect the immutable chronological SQLite audit trail.
+13. **Run Acceptance Scorecard (Screen E):** Switch to the **Acceptance Test Suite** tab and click **Execute Official Acceptance Suite**. Watch live execution pass all 9 test scenarios (TC1 - TC4 and edge cases) with 100% green checkmarks.

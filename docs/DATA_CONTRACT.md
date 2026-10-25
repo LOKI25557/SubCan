@@ -82,6 +82,16 @@ The SubCan data contract defines the canonical data models and validation bounda
 - `failed`: Action or verification failed.
 - `pending`: Run in progress.
 
+### 3.7. `DiscoverySource`
+- `connector`: Ingested via mock/direct provider connector.
+- `email`: Discovered from scanned email receipts/invoices.
+- `manual`: Manually registered by user through inventory dashboard.
+
+### 3.8. `CandidateReviewStatus`
+- `pending`: Discovered email candidate awaiting user review.
+- `confirmed`: Accepted by user and promoted into main subscription inventory.
+- `dismissed`: Rejected/ignored by user without creating a subscription record.
+
 ---
 
 ## 4. Entity Schemas
@@ -89,19 +99,29 @@ The SubCan data contract defines the canonical data models and validation bounda
 ### 4.1. `Subscription`
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `subscription_id` | `str` | Yes | Unique identifier (e.g. `sub_tc1_cinevault`). |
+| `subscription_id` | `str` | Yes | Unique identifier (e.g. `sub_tc1_cinevault` or `sub_man_...`). |
 | `service_name` | `str` | Yes | Service name (e.g. `CineVault Mock Streaming`). |
 | `status` | `SubscriptionStatus` | Yes | Current state (`active`, `cancelled`, `unknown`). |
 | `renewal_date` | `date` | No | Next renewal date (ISO `YYYY-MM-DD`). |
-| `last_used_at` | `datetime` | No | Last streaming activity timestamp. `null` if unknown. |
-| `source_url` | `str` | No | Connector or mock site URL. |
-| `source_record_id` | `str` | No | Upstream account or customer ID. |
-| `monthly_cost` | `float` | No | Cost per billing cycle. |
+| `last_used_at` | `datetime` | No | Last activity timestamp. `null` if unknown. |
+| `source_url` | `str` | No | Connector, portal, or receipt reference URL. |
+| `source_record_id` | `str` | No | Upstream account, email message, or customer ID. |
+| `monthly_cost` | `float` | No | Cost per billing cycle (>= 0). |
 | `currency` | `str` | No | Currency code (default: `"USD"`). |
-| `billing_cycle` | `str` | No | Cadence (`"monthly"`, `"annual"`). |
+| `billing_cycle` | `str` | No | Cadence (`"monthly"`, `"annual"`, `"quarterly"`). |
 | `cancellation_terms_url` | `str` | No | Link to cancellation policy. |
 | `data_deletion_warning` | `bool` | No | `true` if cancellation purges user data immediately. |
 | `pause_option_available` | `bool` | No | `true` if service offers billing pause. |
+| `user_id` | `str` | No | Owner user ID for tenant isolation (`user_default` fallback). |
+| `category` | `str` | No | Subscription category (`streaming`, `software`, `utility`, `news`, `gym`, `other`). |
+| `discovery_source` | `DiscoverySource` | No | Discovery origin (`connector`, `email`, `manual`). |
+| `confidence` | `float` | No | Extraction confidence score (`0.0` - `1.0`). |
+| `notes` | `str` | No | User-provided notes or parsing remarks. |
+| `is_archived` | `bool` | No | Soft-delete status (`false` by default). |
+| `manual_action_url` | `str` | No | Official direct portal cancellation URL for restricted services. |
+| `manual_action_instructions` | `str` | No | Safe human guidance steps for restricted/in-person services. |
+| `created_at` | `datetime` | No | Creation timestamp. |
+| `updated_at` | `datetime` | No | Last modification timestamp. |
 
 ### 4.2. `Evidence`
 | Field | Type | Required | Description |
@@ -190,6 +210,98 @@ The SubCan data contract defines the canonical data models and validation bounda
 | `subscription_ids` | `List[str]` | Yes | List of subscription IDs in scope. |
 | `final_results` | `Dict[str, FinalResultStatus]` | Yes | Map of ID -> FinalResultStatus. |
 | `summary` | `str` | No | Human-readable audit summary. |
+
+### 4.9. `SubscriptionCandidate`
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `candidate_id` | `str` | Yes | Unique candidate identifier (`cand_<uid>_<svc>_<msgid>`). |
+| `user_id` | `str` | Yes | Scoped owner user ID. |
+| `email_account` | `str` | Yes | Connected email address. |
+| `service_name` | `str` | Yes | Extracted service / merchant name. |
+| `detected_amount` | `float` | No | Extracted billing amount (>= 0). |
+| `currency` | `str` | No | Billing currency code (default: `"USD"`). |
+| `billing_cycle` | `str` | No | Inferred interval (`"monthly"`, `"annual"`). |
+| `renewal_date` | `date` | No | Detected next renewal or cycle date. |
+| `sender_email` | `str` | No | Source email address of sender. |
+| `subject_line` | `str` | No | Email subject line. |
+| `message_date` | `datetime` | No | Email received timestamp. |
+| `confidence` | `float` | Yes | Extraction confidence (`0.0` - `1.0`). |
+| `status` | `CandidateReviewStatus`| Yes | Review state (`pending`, `confirmed`, `dismissed`). |
+| `evidence_snippet` | `str` | No | Sanitized contextual text excerpt from email body. |
+| `raw_message_id` | `str` | No | Email provider message ID. |
+| `created_at` | `datetime` | No | Discovery timestamp. |
+
+### 4.10. `EmailAccountStatus`
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `connected` | `bool` | Yes | `true` if an account is linked with valid tokens. |
+| `email` | `str` | No | Linked email address. |
+| `provider` | `str` | No | OAuth provider (`"google"`). |
+| `last_synced_at` | `datetime` | No | Timestamp of most recent mailbox sync. |
+| `candidate_count` | `int` | No | Total candidates discovered. |
+| `pending_candidate_count`| `int` | No | Discovered candidates awaiting confirmation. |
+
+### 4.11. `SubscriptionCreateRequest`
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `service_name` | `str` | Yes | Non-blank service name (min length: 1). |
+| `monthly_cost` | `float` | No | Monthly cost (>= 0.0). |
+| `currency` | `str` | No | Currency code (default: `"USD"`). |
+| `billing_cycle` | `str` | No | Cadence (`"monthly"`, `"annual"`, `"quarterly"`). |
+| `renewal_date` | `date` | No | Next renewal date (`YYYY-MM-DD`). |
+| `last_used_at` | `datetime` | No | Last usage activity date. |
+| `category` | `str` | No | Category (`"streaming"`, `"software"`, `"utility"`, etc.). |
+| `cancellation_terms_url` | `str` | No | Policy URL. |
+| `notes` | `str` | No | User notes. |
+| `manual_action_url` | `str` | No | Custom or official portal cancellation URL. |
+| `manual_action_instructions` | `str` | No | Guidance notes for cancellation. |
+
+### 4.12. `SubscriptionUpdateRequest`
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `service_name` | `str` | No | Updated service name. |
+| `status` | `SubscriptionStatus` | No | Updated status (`active`, `cancelled`, `unknown`). |
+| `renewal_date` | `date` | No | Updated renewal date. |
+| `last_used_at` | `datetime` | No | Updated last activity timestamp. |
+| `monthly_cost` | `float` | No | Updated cost (>= 0.0). |
+| `currency` | `str` | No | Updated currency. |
+| `billing_cycle` | `str` | No | Updated billing cycle. |
+| `category` | `str` | No | Updated category. |
+| `notes` | `str` | No | Updated notes. |
+| `manual_action_url` | `str` | No | Updated manual URL. |
+| `manual_action_instructions` | `str` | No | Updated instructions. |
+
+### 4.13. `SubscriptionCandidate`
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `candidate_id` | `str` | Yes | Unique ID (e.g. `cand_user_netflix_001`). |
+| `user_id` | `str` | Yes | Tenant or user owning this candidate. |
+| `merchant_name` | `str` | Yes | Extracted merchant or service name. |
+| `product_name` | `str` | No | Detected product or tier (e.g. Premium). |
+| `estimated_cost` | `float` | No | Extracted recurring billing cost. |
+| `currency` | `str` | No | Extracted currency (default `"USD"`). |
+| `billing_interval` | `str` | No | Detected cadence (`monthly`, `annual`, etc.). |
+| `detected_renewal_date` | `date` | No | Extracted next renewal date. |
+| `detected_last_used` | `datetime` | No | Detected date of receipt email. |
+| `confidence` | `float` | Yes | Extraction confidence (0.0 to 1.0). |
+| `review_status` | `str` | Yes | Status (`pending`, `confirmed`, `dismissed`). |
+| `source_message_id` | `str` | Yes | Provenance Gmail message ID. |
+| `source_subject` | `str` | Yes | Sanitized subject line of receipt. |
+| `source_sender` | `str` | Yes | Sanitized sender address. |
+| `email_snippet` | `str` | Yes | XSS-sanitized body evidence excerpt. |
+| `cancellation_signal` | `bool` | Yes | Flag indicating receipt is a cancellation/refund. |
+
+### 4.14. `EmailAccountStatus`
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `user_id` | `str` | Yes | Tenant or user identifier. |
+| `email_address` | `str` | No | Connected Gmail address. |
+| `is_connected` | `bool` | Yes | Whether OAuth token is active and valid. |
+| `provider` | `str` | Yes | Provider name (`"gmail"`). |
+| `last_synced_at` | `datetime` | No | Timestamp of latest mailbox sync. |
+| `sync_status` | `str` | Yes | Status (`"idle"`, `"syncing"`, `"failed"`). |
+| `candidate_count` | `int` | Yes | Total discovered candidates in review queue. |
+| `error_message` | `str` | No | Sanitized error message if sync failed. |
 
 ---
 
