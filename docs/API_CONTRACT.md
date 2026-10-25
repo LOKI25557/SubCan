@@ -3,8 +3,10 @@
 **Project Title:** SubCan: An AI-Powered Subscription Cancellation Agent  
 **Tagline:** Detect. Decide. Approve. Cancel. Verify.  
 **Version:** 0.1.0 (Phase 0: Foundation & Team Independence)  
-**Base URL:** `http://127.0.0.1:8000`  
-**Interactive Docs:** `/docs` (Swagger UI), `/redoc` (ReDoc)
+**Base URL (Local):** `http://127.0.0.1:8000`  
+**Base URL (Production Deployed):** `https://subcan.onrender.com`  
+**Interactive Docs:** [https://subcan.onrender.com/docs](https://subcan.onrender.com/docs) (Swagger UI), [https://subcan.onrender.com/redoc](https://subcan.onrender.com/redoc) (ReDoc)  
+**Production Dashboard:** [https://subcan.onrender.com/dashboard/](https://subcan.onrender.com/dashboard/)
 
 ---
 

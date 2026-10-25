@@ -76,13 +76,52 @@ $("notice-close").addEventListener("click", () => {
   $("notice").hidden = true;
 });
 
+// -----------------------------------------------------------------------------
+// Backend Host Configuration & Endpoint Resolver
+// -----------------------------------------------------------------------------
+
+const DEFAULT_BACKEND_URL = "https://subcan.onrender.com";
+
+function getBackendUrl() {
+  const custom = localStorage.getItem("subcan_backend_url");
+  if (custom && custom.trim()) {
+    return custom.trim().replace(/\/+$/, "");
+  }
+  if (typeof window !== "undefined" && window.location && window.location.origin) {
+    const origin = window.location.origin;
+    if (origin.includes("subcan.onrender.com")) {
+      return origin;
+    }
+  }
+  return DEFAULT_BACKEND_URL;
+}
+
+function setBackendUrl(url) {
+  if (url && url.trim()) {
+    localStorage.setItem("subcan_backend_url", url.trim().replace(/\/+$/, ""));
+  } else {
+    localStorage.removeItem("subcan_backend_url");
+  }
+}
+
+function resolveApiUrl(url) {
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) {
+    return url;
+  }
+  const base = getBackendUrl();
+  const normalized = url.startsWith("/") ? url : `/${url}`;
+  return `${base}${normalized}`;
+}
+
 async function api(url, options = {}) {
+  const targetUrl = resolveApiUrl(url);
   const headers = Object.assign({}, options.headers || {});
   if (!headers["X-User-ID"]) {
     headers["X-User-ID"] = getCurrentUserId();
   }
   const opts = Object.assign({}, options, { headers });
-  const response = await fetch(url, opts);
+  const response = await fetch(targetUrl, opts);
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const errorMsg = data.error?.message || data.detail?.message || `Request failed (${response.status})`;
@@ -1615,6 +1654,42 @@ function initUserSwitcher() {
   });
 }
 
+function initBackendSwitcher() {
+  const sel = $("backend-selector");
+  if (!sel) return;
+  const current = getBackendUrl();
+  let found = false;
+  for (let opt of sel.options) {
+    if (opt.value === current) {
+      sel.value = current;
+      found = true;
+      break;
+    }
+  }
+  if (!found && current) {
+    const customOpt = document.createElement("option");
+    customOpt.value = current;
+    customOpt.textContent = `Custom (${current})`;
+    sel.insertBefore(customOpt, sel.lastElementChild);
+    sel.value = current;
+  }
+
+  sel.addEventListener("change", async (e) => {
+    let val = e.target.value;
+    if (val === "custom") {
+      const entered = prompt("Enter Backend API Base URL (e.g. https://subcan.onrender.com or http://127.0.0.1:8000):", current);
+      if (!entered || !entered.trim()) {
+        sel.value = current;
+        return;
+      }
+      val = entered.trim().replace(/\/+$/, "");
+    }
+    setBackendUrl(val);
+    showNotice(`Switched backend API target to: ${val}`, "info");
+    await refreshAll();
+  });
+}
+
 $("email-account-select")?.addEventListener("change", async (e) => {
   state.selectedAccountId = e.target.value;
   await loadEmailTab();
@@ -1652,6 +1727,7 @@ $("eligibility-filter")?.addEventListener("change", renderRows);
 $("source-filter")?.addEventListener("change", renderRows);
 
 // Initial deterministic boot: user switcher, close drawer and load subscriptions
+initBackendSwitcher();
 initUserSwitcher();
 closeDrawer();
 loadSubscriptions();
