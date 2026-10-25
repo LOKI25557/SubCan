@@ -89,7 +89,7 @@ function getBackendUrl() {
   }
   if (typeof window !== "undefined" && window.location && window.location.origin) {
     const origin = window.location.origin;
-    if (origin.includes("subcan.onrender.com")) {
+    if (origin === "https://subcan.onrender.com" || origin.includes("localhost:8000") || origin.includes("127.0.0.1:8000")) {
       return origin;
     }
   }

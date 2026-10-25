@@ -254,7 +254,7 @@ app = FastAPI(
 # CORS Configuration
 raw_origins = os.getenv(
     "CORS_ORIGINS",
-    "https://subcan.onrender.com,http://localhost:8000,http://127.0.0.1:8000,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5500,http://127.0.0.1:5500",
+    "https://subcan-frontend.onrender.com,https://subcan.onrender.com,http://localhost:8000,http://127.0.0.1:8000,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5500,http://127.0.0.1:5500",
 )
 allowed_origins = [o.strip() for o in raw_origins.split(",") if o.strip()]
 
