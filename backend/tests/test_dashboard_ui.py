@@ -33,6 +33,11 @@ def test_dashboard_html_structure_and_drawer_initial_hidden_state():
     assert 'styles.css?v=2.1' in html
     assert 'app.js?v=2.1' in html
 
+    # Universal static hosting: asset links must use relative paths (never hardcoded /dashboard/)
+    assert 'href="./styles.css?v=2.1"' in html
+    assert 'src="./app.js?v=2.1"' in html
+    assert 'data:image/svg+xml' in html
+
 
 def test_dashboard_css_hidden_and_drawer_blur_rules():
     """Requirement 1 & 6: Verify styles.css enforces display: none and disables backdrop-filter when hidden."""

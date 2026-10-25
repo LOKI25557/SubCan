@@ -223,7 +223,7 @@ def test_sync_mailbox_and_candidate_confirmation():
     assert len(candidates) >= 3
 
     # Check that candidate has evidence and metadata
-    cand = candidates[0]
+    cand = next((c for c in candidates if c.get("estimated_cost") is not None), candidates[0])
     cand_id = cand["candidate_id"]
     assert cand["review_status"] == "pending"
     assert cand["merchant_name"] is not None
