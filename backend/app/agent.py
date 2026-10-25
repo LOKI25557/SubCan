@@ -166,6 +166,7 @@ def initialize_orchestration_run(
     run_id: Optional[str] = None,
     as_of: Optional[datetime] = None,
     registry: Optional[AgentRunRegistry] = None,
+    user_id: str = "user_default",
 ) -> Tuple[AgentRun, Dict[str, SubscriptionRunState]]:
     """Initialize an AgentRun by executing the DETECT, DECIDE, and PLAN phases.
 
@@ -244,6 +245,7 @@ def initialize_orchestration_run(
 
     agent_run = AgentRun(
         run_id=run_identifier,
+        user_id=user_id,
         started_at=as_of,
         completed_at=as_of if run_status == "completed" else None,
         status=run_status,

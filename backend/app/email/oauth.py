@@ -31,6 +31,7 @@ from backend.app.config import (
 from backend.app.database import (
     disconnect_email_account,
     get_email_account,
+    get_email_account_by_email,
     get_email_tokens,
     save_email_account,
 )
@@ -63,6 +64,8 @@ def generate_pkce_pair() -> Tuple[str, str]:
 def generate_oauth_url(
     user_id: str = "user_default",
     redirect_uri: Optional[str] = None,
+    account_name: Optional[str] = None,
+    account_id: Optional[str] = None,
 ) -> Tuple[str, str]:
     """Generate authorization URL with secure state token and PKCE code challenge.
 
@@ -77,6 +80,8 @@ def generate_oauth_url(
 
     _OAUTH_STATES[state] = {
         "user_id": user_id,
+        "account_id": account_id,
+        "account_name": account_name,
         "code_verifier": code_verifier,
         "redirect_uri": final_redirect,
         "created_at": datetime.now(timezone.utc),
@@ -108,6 +113,8 @@ def exchange_code_for_tokens(
     code: str,
     state: str,
     user_id: Optional[str] = None,
+    account_name: Optional[str] = None,
+    account_id: Optional[str] = None,
     error: Optional[str] = None,
     client: Optional[httpx.Client] = None,
 ) -> EmailAccountStatus:
@@ -124,10 +131,14 @@ def exchange_code_for_tokens(
         if not (code.startswith("mock_") or code.startswith("test_")):
             raise ValueError("Invalid, expired, or mismatched OAuth state parameter.")
         effective_user_id = user_id or "user_default"
+        effective_account_name = account_name
+        target_account_id = account_id
         code_verifier: Optional[str] = None
         redirect_uri = get_google_redirect_uri()
     else:
         effective_user_id = state_data["user_id"]
+        effective_account_name = account_name or state_data.get("account_name")
+        target_account_id = account_id or state_data.get("account_id")
         code_verifier = state_data["code_verifier"]
         redirect_uri = state_data["redirect_uri"]
 
@@ -138,9 +149,28 @@ def exchange_code_for_tokens(
 
     # Safe demo fallback mode
     if not is_live_oauth_configured() or code.startswith("mock_") or code.startswith("test_"):
-        demo_email = f"{effective_user_id}@subcan-demo.com"
+        existing_acct = None
+        if target_account_id:
+            existing_acct = get_email_account(effective_user_id, account_id=target_account_id)
+        if not existing_acct:
+            demo_email = f"{effective_user_id}@subcan-demo.com"
+            existing_acct = get_email_account_by_email(effective_user_id, demo_email)
+
+        if existing_acct:
+            acct_id = existing_acct.account_id
+            demo_email = existing_acct.email_address or f"{effective_user_id}@subcan-demo.com"
+            final_account_name = effective_account_name if (effective_account_name and effective_account_name.strip()) else existing_acct.account_name
+        else:
+            demo_email = f"{effective_user_id}@subcan-demo.com"
+            em_hash = hashlib.sha256(demo_email.lower().strip().encode()).hexdigest()[:8]
+            acct_id = target_account_id or f"acct_{effective_user_id}_{em_hash}"
+            final_account_name = effective_account_name or demo_email
+
         status = EmailAccountStatus(
+            account_id=acct_id,
             user_id=effective_user_id,
+            account_name=final_account_name or demo_email,
+            is_default=True,
             email_address=demo_email,
             is_connected=True,
             provider="gmail",
@@ -215,8 +245,24 @@ def exchange_code_for_tokens(
         else:
             email_addr = "connected_account@gmail.com"
 
+        # Check if an existing account exists for this user and email
+        existing_acct = get_email_account_by_email(effective_user_id, email_addr)
+        if not existing_acct and target_account_id:
+            existing_acct = get_email_account(effective_user_id, account_id=target_account_id)
+
+        if existing_acct:
+            acct_id = existing_acct.account_id
+            final_account_name = effective_account_name if (effective_account_name and effective_account_name.strip()) else existing_acct.account_name
+        else:
+            em_hash = hashlib.sha256(email_addr.lower().strip().encode()).hexdigest()[:8]
+            acct_id = target_account_id or f"acct_{effective_user_id}_{em_hash}"
+            final_account_name = effective_account_name or email_addr
+
         status = EmailAccountStatus(
+            account_id=acct_id,
             user_id=effective_user_id,
+            account_name=final_account_name or email_addr,
+            is_default=True,
             email_address=email_addr,
             is_connected=True,
             provider="gmail",
@@ -242,6 +288,7 @@ def exchange_code_for_tokens(
 
 def refresh_access_token(
     user_id: str = "user_default",
+    account_id: Optional[str] = None,
     client: Optional[httpx.Client] = None,
 ) -> Optional[str]:
     """Use stored refresh token to obtain a fresh access token from Google.
@@ -251,7 +298,7 @@ def refresh_access_token(
     if not is_live_oauth_configured():
         return "mock_access_token_demo_refreshed"
 
-    tokens = get_email_tokens(user_id)
+    tokens = get_email_tokens(user_id, account_id=account_id)
     if not tokens or not tokens.get("refresh_token"):
         return None
 
@@ -280,7 +327,7 @@ def refresh_access_token(
             expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
 
             # Update existing account record with new token
-            current_status = get_email_account(user_id)
+            current_status = get_email_account(user_id, account_id=account_id)
             if current_status:
                 save_email_account(
                     current_status,
@@ -302,10 +349,11 @@ def refresh_access_token(
 
 def get_valid_access_token(
     user_id: str = "user_default",
+    account_id: Optional[str] = None,
     client: Optional[httpx.Client] = None,
 ) -> Optional[str]:
     """Retrieve an active access token, refreshing automatically if expired or near expiry."""
-    tokens = get_email_tokens(user_id)
+    tokens = get_email_tokens(user_id, account_id=account_id)
     if not tokens:
         return None
 
@@ -313,7 +361,7 @@ def get_valid_access_token(
     expires_at_str = tokens.get("expires_at")
 
     if not access_token:
-        return refresh_access_token(user_id, client=client)
+        return refresh_access_token(user_id, account_id=account_id, client=client)
 
     if access_token.startswith("mock_") or access_token.startswith("test_"):
         return access_token
@@ -323,7 +371,7 @@ def get_valid_access_token(
             expires_at = datetime.fromisoformat(expires_at_str)
             # Refresh if less than 5 minutes remain
             if datetime.now(timezone.utc) >= expires_at - timedelta(minutes=5):
-                refreshed = refresh_access_token(user_id, client=client)
+                refreshed = refresh_access_token(user_id, account_id=account_id, client=client)
                 return refreshed or access_token
         except Exception:
             pass
@@ -331,9 +379,12 @@ def get_valid_access_token(
     return access_token
 
 
-def disconnect_account(user_id: str = "user_default") -> bool:
+def disconnect_account(
+    user_id: str = "user_default",
+    account_id: Optional[str] = None,
+) -> bool:
     """Disconnect account, attempt best-effort token revocation with Google, and clear tokens."""
-    tokens = get_email_tokens(user_id)
+    tokens = get_email_tokens(user_id, account_id=account_id)
     if tokens and tokens.get("access_token") and is_live_oauth_configured():
         token_to_revoke = tokens["access_token"]
         if not (token_to_revoke.startswith("mock_") or token_to_revoke.startswith("test_")):
@@ -342,7 +393,7 @@ def disconnect_account(user_id: str = "user_default") -> bool:
                     client.post(GOOGLE_REVOKE_ENDPOINT, params={"token": token_to_revoke})
             except Exception:
                 pass  # Best effort revocation
-    disconnect_email_account(user_id)
+    disconnect_email_account(user_id, account_id=account_id)
     return True
 
 

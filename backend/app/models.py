@@ -20,8 +20,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 class SubscriptionStatus(str, Enum):
     """Lifecycle status of a tracked subscription."""
     ACTIVE = "active"
+    TRIAL = "trial"
+    PAYMENT_FAILED = "payment_failed"
     CANCELLED = "cancelled"
+    EXPIRED = "expired"
+    REFUNDED = "refunded"
     UNKNOWN = "unknown"
+    REQUIRES_REVIEW = "requires_review"
 
 
 class EligibilityStatus(str, Enum):
@@ -73,8 +78,24 @@ class FinalResultStatus(str, Enum):
 class DiscoverySource(str, Enum):
     """Origin of a subscription record."""
     CONNECTOR = "connector"
+    DEMO = "demo"
     EMAIL = "email"
+    GMAIL = "gmail"
     MANUAL = "manual"
+
+
+class EmailEvidenceCategory(str, Enum):
+    """Authoritative categorization of billing and account emails."""
+    CONFIRMED_BILLING = "confirmed_billing"
+    TRIAL_OR_CREATION = "trial_or_creation"
+    UPCOMING_RENEWAL = "upcoming_renewal"
+    PAYMENT_FAILURE = "payment_failure"
+    CANCELLATION_OR_EXPIRATION = "cancellation_or_expiration"
+    REFUND = "refund"
+    MARKETING_PROMOTIONAL = "marketing_promotional"
+    NEWSLETTER_NOTIFICATION = "newsletter_notification"
+    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+    PARSER_FAILURE = "parser_failure"
 
 
 class CandidateReviewStatus(str, Enum):
@@ -130,8 +151,32 @@ class Subscription(BaseModel):
         description="Monthly billing amount in currency units."
     )
     currency: Optional[str] = Field(
-        default="USD",
-        description="ISO 4217 currency code (e.g. 'USD')."
+        default="INR",
+        description="ISO 4217 currency code (e.g. 'INR', 'USD')."
+    )
+    original_amount: Optional[float] = Field(
+        default=None,
+        description="Original numerical amount extracted from transaction or evidence."
+    )
+    original_currency: Optional[str] = Field(
+        default=None,
+        description="Original ISO 4217 currency code extracted from transaction or evidence."
+    )
+    converted_amount: Optional[float] = Field(
+        default=None,
+        description="Optional converted amount in preferred display currency."
+    )
+    converted_currency: Optional[str] = Field(
+        default=None,
+        description="Preferred display currency for converted amount."
+    )
+    conversion_rate: Optional[float] = Field(
+        default=None,
+        description="Documented exchange rate applied."
+    )
+    conversion_timestamp: Optional[datetime] = Field(
+        default=None,
+        description="Timestamp when conversion rate was retrieved."
     )
     billing_cycle: Optional[str] = Field(
         default="monthly",
@@ -159,7 +204,7 @@ class Subscription(BaseModel):
     )
     discovery_source: Optional[str] = Field(
         default="connector",
-        description="Source provenance: 'connector', 'email', or 'manual'."
+        description="Source provenance: 'connector', 'demo', 'email', or 'manual'."
     )
     confidence: Optional[float] = Field(
         default=1.0,
@@ -183,6 +228,30 @@ class Subscription(BaseModel):
         default=None,
         description="Human-readable step-by-step instructions for manual cancellation."
     )
+    evidence_category: Optional[str] = Field(
+        default=None,
+        description="Category of discovery evidence (e.g. 'confirmed_billing', 'trial_or_creation')."
+    )
+    lifecycle_status: Optional[str] = Field(
+        default=None,
+        description="Detailed evidence-backed lifecycle status (e.g. 'trial', 'active', 'payment_failed', 'cancelled')."
+    )
+    trial_end_date: Optional[date] = Field(
+        default=None,
+        description="Expiration date of free or discounted trial period."
+    )
+    purchase_date: Optional[date] = Field(
+        default=None,
+        description="Authoritative initial purchase or order date."
+    )
+    cancellation_date: Optional[date] = Field(
+        default=None,
+        description="Date when cancellation or refund took effect."
+    )
+    last_payment_date: Optional[date] = Field(
+        default=None,
+        description="Date of latest successful payment."
+    )
     created_at: Optional[datetime] = Field(
         default=None,
         description="Timestamp when subscription was first recorded."
@@ -190,6 +259,14 @@ class Subscription(BaseModel):
     updated_at: Optional[datetime] = Field(
         default=None,
         description="Timestamp of last update."
+    )
+    account_id: Optional[str] = Field(
+        default=None,
+        description="Connected email account ID that discovered this subscription."
+    )
+    account_email: Optional[str] = Field(
+        default=None,
+        description="Email address of connected account that received the billing evidence."
     )
 
 
@@ -199,7 +276,9 @@ class SubscriptionCreateRequest(BaseModel):
 
     service_name: str = Field(..., min_length=1, max_length=100)
     monthly_cost: Optional[float] = Field(default=None, ge=0.0)
-    currency: Optional[str] = Field(default="USD", max_length=5)
+    currency: Optional[str] = Field(default="INR", max_length=5)
+    original_amount: Optional[float] = None
+    original_currency: Optional[str] = None
     billing_cycle: Optional[str] = Field(default="monthly", max_length=20)
     renewal_date: Optional[date] = None
     last_used_at: Optional[datetime] = None
@@ -245,8 +324,12 @@ class SubscriptionCandidate(BaseModel):
     merchant_name: str
     product_name: Optional[str] = None
     estimated_cost: Optional[float] = None
-    currency: Optional[str] = "USD"
-    billing_interval: Optional[str] = "monthly"
+    currency: Optional[str] = None
+    original_amount: Optional[float] = None
+    original_currency: Optional[str] = None
+    converted_amount: Optional[float] = None
+    converted_currency: Optional[str] = None
+    billing_interval: Optional[str] = None
     detected_renewal_date: Optional[date] = None
     detected_last_used: Optional[datetime] = None
     review_status: CandidateReviewStatus = CandidateReviewStatus.PENDING
@@ -258,17 +341,30 @@ class SubscriptionCandidate(BaseModel):
     email_snippet: Optional[str] = None
     cancellation_signal: bool = False
     notes: Optional[str] = None
+    evidence_category: Optional[str] = None
+    lifecycle_status: Optional[str] = None
+    trial_end_date: Optional[date] = None
+    purchase_date: Optional[date] = None
+    cancellation_date: Optional[date] = None
+    last_payment_date: Optional[date] = None
+    reason: Optional[str] = None
     created_at: Optional[datetime] = None
+    is_demo: bool = False
+    account_id: Optional[str] = None
+    account_email: Optional[str] = None
 
 
 class EmailAccountStatus(BaseModel):
-    """Status model for connected email provider account."""
+    """Status model for connected email provider account with comprehensive diagnostics."""
     model_config = ConfigDict(extra="forbid")
 
+    account_id: Optional[str] = None
     user_id: str = "user_default"
     email_address: Optional[str] = None
+    account_name: Optional[str] = None
     is_connected: bool = False
     connected: bool = False
+    is_default: bool = True
     provider: str = "gmail"
     scopes: List[str] = Field(default_factory=list)
     last_synced_at: Optional[datetime] = None
@@ -277,6 +373,18 @@ class EmailAccountStatus(BaseModel):
     error_message: Optional[str] = None
     is_live_configured: bool = False
     mode: str = "demo"
+    messages_discovered: Optional[int] = None
+    messages_retrieved: Optional[int] = None
+    messages_parsed: Optional[int] = None
+    messages_skipped: Optional[int] = None
+    messages_insufficient_evidence: Optional[int] = None
+    duplicates_skipped: Optional[int] = None
+    parsing_failures: Optional[int] = None
+    is_partial_scan: bool = False
+    scan_limit: Optional[int] = None
+    scan_date_range: Optional[str] = None
+    skip_reasons: Optional[Dict[str, int]] = None
+    failure_reasons: Optional[Dict[str, int]] = None
 
     def model_post_init(self, __context: Any) -> None:
         if self.is_connected and not self.connected:
@@ -572,6 +680,10 @@ class AgentRun(BaseModel):
     run_id: str = Field(
         ...,
         description="Unique identifier for the agent execution run."
+    )
+    user_id: str = Field(
+        default="user_default",
+        description="Owner user identifier."
     )
     started_at: datetime = Field(
         ...,

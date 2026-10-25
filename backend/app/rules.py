@@ -185,14 +185,19 @@ def evaluate_eligibility(
     )
 
     # --------------------------------------------------------------------------
-    # 1. State Check: Already Cancelled
+    # 1. State Check: Already Cancelled, Expired, or Refunded
     # --------------------------------------------------------------------------
-    if subscription.status == SubscriptionStatus.CANCELLED:
+    if subscription.status in (
+        SubscriptionStatus.CANCELLED,
+        SubscriptionStatus.EXPIRED,
+        SubscriptionStatus.REFUNDED,
+    ):
+        status_label = subscription.status.value.replace("_", " ")
         return Decision(
             decision_id=decision_id,
             subscription_id=subscription.subscription_id,
             eligibility=EligibilityStatus.NOT_ELIGIBLE,
-            reason="Subscription is already recorded as cancelled; no cancellation proposal required.",
+            reason=f"Subscription is already recorded as {status_label}; no cancellation proposal required.",
             uncertainty=0.0,
             rule_version=rule_version,
             evaluated_at=as_of,
@@ -202,14 +207,19 @@ def evaluate_eligibility(
         )
 
     # --------------------------------------------------------------------------
-    # 2. State Check: Unknown Subscription Status
+    # 2. State Check: Unknown, Payment Failed, or Requires Review Status
     # --------------------------------------------------------------------------
-    if subscription.status == SubscriptionStatus.UNKNOWN:
+    if subscription.status in (
+        SubscriptionStatus.UNKNOWN,
+        SubscriptionStatus.PAYMENT_FAILED,
+        SubscriptionStatus.REQUIRES_REVIEW,
+    ):
+        status_label = subscription.status.value.replace("_", " ")
         return Decision(
             decision_id=decision_id,
             subscription_id=subscription.subscription_id,
             eligibility=EligibilityStatus.NEEDS_REVIEW,
-            reason="Subscription status is unknown; requires human review to verify active billing before planning.",
+            reason=f"Subscription status is {status_label}; requires human review to verify active billing before planning.",
             uncertainty=0.6,
             rule_version=rule_version,
             evaluated_at=as_of,

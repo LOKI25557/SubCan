@@ -19,6 +19,7 @@ SAFETY INVARIANTS:
 """
 
 import backend.app.config
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import os
 import re
@@ -211,9 +212,28 @@ class RunReportResponse(BaseModel):
     items: List[RunReportItem]
 
 
+class DatabaseAuditRequest(BaseModel):
+    """Payload to trigger database audit and reconciliation."""
+    model_config = ConfigDict(extra="forbid")
+
+    dry_run: Optional[bool] = Field(
+        default=True,
+        description="If True, only reports findings without applying changes. If False, executes cleanup and reconciliation.",
+    )
+
+
 # ==============================================================================
 # FastAPI Application & Error Handlers
 # ==============================================================================
+
+@asynccontextmanager
+async def app_lifespan(app: FastAPI):
+    """Initialize database schema and ensure clean real-user state on boot."""
+    from backend.app.database import initialize_schema, cleanup_demo_and_mock_data
+    initialize_schema()
+    cleanup_demo_and_mock_data(user_id="user_default")
+    yield
+
 
 app = FastAPI(
     title="SubCan: An AI-Powered Subscription Cancellation Agent",
@@ -227,6 +247,7 @@ app = FastAPI(
     version="0.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=app_lifespan,
 )
 
 # CORS Configuration
@@ -423,8 +444,9 @@ def get_readiness() -> Dict[str, Any]:
         "SAFETY: Never triggers cancellation execution."
     ),
 )
-def create_run(req: CreateRunRequest) -> AgentRun:
+def create_run(req: CreateRunRequest, request: Request) -> AgentRun:
     """Create and initialize a new agent run across connectors, email, and manual subscriptions."""
+    user_id = get_current_user_id(request)
     if not req.subscription_ids:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -447,7 +469,7 @@ def create_run(req: CreateRunRequest) -> AgentRun:
         from backend.app.database import get_subscription_from_db
         still_missing = []
         for m_id in sorted(list(missing_ids)):
-            db_sub = get_subscription_from_db(m_id)
+            db_sub = get_subscription_from_db(m_id, user_id=user_id)
             if db_sub:
                 subscriptions.append(db_sub)
                 if m_id not in evidence_map:
@@ -478,6 +500,7 @@ def create_run(req: CreateRunRequest) -> AgentRun:
         subscriptions=subscriptions,
         evidence_map=evidence_map,
         as_of=as_of,
+        user_id=user_id,
     )
     return run
 
@@ -497,32 +520,33 @@ def list_subscriptions(
     limit: Optional[int] = None,
     offset: int = 0,
 ) -> List[Subscription]:
-    """Expose unified subscription inventory from connectors, email, and manual entries."""
+    """Expose unified subscription inventory for genuine user-confirmed and manual subscriptions."""
     user_id = get_current_user_id(request)
-    try:
-        connector_subs = fetch_subscriptions()
-    except Exception:
-        connector_subs, _ = load_fixture_data()
-    from backend.app.database import list_subscriptions_from_db, save_subscription
+    from backend.app.database import list_subscriptions_from_db
 
-    for subscription in connector_subs:
-        save_subscription(subscription)
+    # Only load synthetic connector fixtures when explicitly requested via source="demo" or source="connector"
+    if source in ("demo", "connector"):
+        from backend.app.connectors import fetch_subscriptions
+        from backend.app.agent import load_fixture_data
+        try:
+            connector_subs = fetch_subscriptions()
+        except Exception:
+            connector_subs, _ = load_fixture_data()
+        result = list(connector_subs)
+    else:
+        # Real-data-only mode: only genuine database records for the requesting user
+        db_records = list_subscriptions_from_db(
+            user_id=user_id,
+            include_archived=include_archived,
+        )
+        if source:
+            if source in ("gmail", "email"):
+                result = [s for s in db_records if s.discovery_source in ("gmail", "email")]
+            else:
+                result = [s for s in db_records if s.discovery_source == source]
+        else:
+            result = [s for s in db_records if s.discovery_source in ("email", "gmail", "manual")]
 
-    seen_ids = {s.subscription_id for s in connector_subs}
-    result = list(connector_subs)
-
-    # Include manually created or email-confirmed subscriptions from SQLite for the requesting user
-    db_records = list_subscriptions_from_db(
-        user_id=user_id,
-        include_archived=include_archived,
-    )
-    for s in db_records:
-        if s.subscription_id not in seen_ids and s.discovery_source in ("manual", "email"):
-            seen_ids.add(s.subscription_id)
-            result.append(s)
-
-    if source:
-        result = [s for s in result if (s.discovery_source or "connector") == source]
     if status:
         result = [s for s in result if s.status.value == status]
 
@@ -570,7 +594,9 @@ def create_manual_subscription(req: SubscriptionCreateRequest, request: Request)
         renewal_date=req.renewal_date,
         last_used_at=req.last_used_at,
         monthly_cost=req.monthly_cost,
-        currency=req.currency or "USD",
+        currency=req.currency or "INR",
+        original_amount=req.original_amount or req.monthly_cost,
+        original_currency=req.original_currency or req.currency or "INR",
         billing_cycle=req.billing_cycle or "monthly",
         cancellation_terms_url=req.cancellation_terms_url,
         category=req.category,
@@ -599,13 +625,19 @@ def get_single_subscription(subscription_id: str, request: Request) -> Subscript
     """Retrieve a subscription by ID."""
     from backend.app.database import get_subscription_from_db
     user_id = get_current_user_id(request)
-    sub = get_subscription_from_db(subscription_id)
+    sub = get_subscription_from_db(subscription_id, user_id=user_id)
+    if not sub:
+        try:
+            from backend.app.connectors import get_subscription as get_conn_sub
+            sub = get_conn_sub(subscription_id)
+        except Exception:
+            sub = None
     if not sub:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "RESOURCE_NOT_FOUND", "message": f"Subscription '{subscription_id}' not found."},
         )
-    if user_id != "user_default" and sub.user_id and sub.user_id != user_id:
+    if sub.user_id and sub.user_id != user_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "RESOURCE_NOT_FOUND", "message": f"Subscription '{subscription_id}' not found."},
@@ -628,13 +660,13 @@ def update_subscription(
     """Update details of an existing subscription."""
     from backend.app.database import get_subscription_from_db, save_subscription
     user_id = get_current_user_id(request)
-    sub = get_subscription_from_db(subscription_id)
+    sub = get_subscription_from_db(subscription_id, user_id=user_id)
     if not sub:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "RESOURCE_NOT_FOUND", "message": f"Subscription '{subscription_id}' not found."},
         )
-    if user_id != "user_default" and sub.user_id and sub.user_id != user_id:
+    if sub.user_id and sub.user_id != user_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "RESOURCE_NOT_FOUND", "message": f"Subscription '{subscription_id}' not found."},
@@ -661,18 +693,18 @@ def archive_subscription(subscription_id: str, request: Request) -> Dict[str, An
     """Archive a subscription from active inventory."""
     from backend.app.database import archive_subscription_in_db, get_subscription_from_db
     user_id = get_current_user_id(request)
-    sub = get_subscription_from_db(subscription_id)
+    sub = get_subscription_from_db(subscription_id, user_id=user_id)
     if not sub:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "RESOURCE_NOT_FOUND", "message": f"Subscription '{subscription_id}' not found."},
         )
-    if user_id != "user_default" and sub.user_id and sub.user_id != user_id:
+    if sub.user_id and sub.user_id != user_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "RESOURCE_NOT_FOUND", "message": f"Subscription '{subscription_id}' not found."},
         )
-    archive_subscription_in_db(subscription_id)
+    archive_subscription_in_db(subscription_id, user_id=user_id)
     return {"archived": True, "status": "archived", "subscription_id": subscription_id}
 
 
@@ -686,11 +718,15 @@ def archive_subscription(subscription_id: str, request: Request) -> Dict[str, An
     summary="Get Google OAuth Authorization URL",
     description="Generates a Google OAuth authorization URL with PKCE and state protection.",
 )
-def get_email_oauth_url(request: Request) -> Dict[str, Any]:
+def get_email_oauth_url(
+    request: Request,
+    account_name: Optional[str] = None,
+    account_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """Return OAuth authorization URL and state token."""
     from backend.app.email import generate_oauth_url, is_live_oauth_configured
     user_id = get_current_user_id(request)
-    url, state = generate_oauth_url(user_id=user_id)
+    url, state = generate_oauth_url(user_id=user_id, account_name=account_name, account_id=account_id)
     is_live = is_live_oauth_configured()
     return {
         "url": url,
@@ -698,6 +734,56 @@ def get_email_oauth_url(request: Request) -> Dict[str, Any]:
         "is_live_configured": is_live,
         "mode": "live" if is_live else "demo",
         "provider": "gmail",
+    }
+
+
+@app.get(
+    "/api/email/accounts",
+    response_model=List[EmailAccountStatus],
+    tags=["Email Discovery"],
+    summary="List Connected Email Accounts",
+    description="Returns all connected email accounts for the current user.",
+)
+def list_email_accounts_endpoint(request: Request) -> List[EmailAccountStatus]:
+    """List all email accounts connected by the user."""
+    from backend.app.database import list_email_accounts
+    user_id = get_current_user_id(request)
+    return list_email_accounts(user_id=user_id)
+
+
+@app.patch(
+    "/api/email/accounts/{account_id}/nickname",
+    tags=["Email Discovery"],
+    summary="Update Email Account Nickname",
+    description="Explicitly update the nickname/description of a registered email account.",
+)
+def update_email_account_nickname(
+    account_id: str,
+    payload: Dict[str, Any],
+    request: Request,
+) -> Dict[str, Any]:
+    """Update custom nickname for an email account."""
+    from backend.app.database import update_email_account_name, get_email_account
+    user_id = get_current_user_id(request)
+    nickname = payload.get("nickname") or payload.get("account_name")
+    if not nickname or not str(nickname).strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "INVALID_NICKNAME", "message": "Nickname cannot be empty."},
+        )
+    clean_name = str(nickname).strip()
+    updated = update_email_account_name(user_id=user_id, account_id=account_id, account_name=clean_name)
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "ACCOUNT_NOT_FOUND", "message": "Email account not found or access denied."},
+        )
+    account = get_email_account(user_id=user_id, account_id=account_id)
+    return {
+        "success": True,
+        "account_id": account_id,
+        "account_name": clean_name,
+        "email_address": account.email_address if account else None,
     }
 
 
@@ -767,17 +853,18 @@ def handle_email_oauth_callback(
     summary="Get Connected Email Account Status",
     description="Returns connection status, sync status, and candidate count.",
 )
-def get_email_account_status(request: Request) -> EmailAccountStatus:
+def get_email_account_status(request: Request, account_id: Optional[str] = None) -> EmailAccountStatus:
     """Get current email account connection status."""
     from backend.app.database import get_email_account
     from backend.app.config import is_live_oauth_configured
     user_id = get_current_user_id(request)
-    account = get_email_account(user_id)
+    account = get_email_account(user_id, account_id=account_id)
     if account:
         return account
     is_live = is_live_oauth_configured()
     return EmailAccountStatus(
         user_id=user_id,
+        account_id=account_id,
         is_connected=False,
         is_live_configured=is_live,
         mode="live" if is_live else "demo",
@@ -790,12 +877,12 @@ def get_email_account_status(request: Request) -> EmailAccountStatus:
     summary="Disconnect Email Account",
     description="Revokes stored OAuth credentials and disconnects mailbox.",
 )
-def disconnect_email(request: Request) -> Dict[str, Any]:
+def disconnect_email(request: Request, account_id: Optional[str] = None) -> Dict[str, Any]:
     """Disconnect email account and revoke tokens."""
     from backend.app.email import disconnect_account
     user_id = get_current_user_id(request)
-    disconnect_account(user_id)
-    return {"disconnected": True, "status": "disconnected", "user_id": user_id}
+    disconnect_account(user_id, account_id=account_id)
+    return {"disconnected": True, "status": "disconnected", "user_id": user_id, "account_id": account_id}
 
 
 @app.post(
@@ -804,15 +891,30 @@ def disconnect_email(request: Request) -> Dict[str, Any]:
     summary="Synchronize Billing Emails",
     description="Searches mailbox for billing messages and extracts candidate subscriptions.",
 )
-def sync_email(request: Request, max_messages: int = 50) -> Dict[str, Any]:
+def sync_email(request: Request, max_messages: int = 100, account_id: Optional[str] = None) -> Dict[str, Any]:
     """Execute targeted mailbox search and candidate extraction."""
+    from backend.app.database import get_email_account
     from backend.app.email import sync_user_mailbox
     user_id = get_current_user_id(request)
     try:
-        candidates = sync_user_mailbox(user_id=user_id, max_messages=max_messages)
+        candidates = sync_user_mailbox(user_id=user_id, account_id=account_id, max_messages=max_messages)
+        account = get_email_account(user_id, account_id=account_id)
         return {
             "synced_count": len(candidates),
             "candidates": [c.model_dump() for c in candidates],
+            "messages_discovered": getattr(account, "messages_discovered", 0) if account else len(candidates),
+            "messages_retrieved": getattr(account, "messages_retrieved", 0) if account else len(candidates),
+            "messages_parsed": getattr(account, "messages_parsed", 0) if account else 0,
+            "messages_skipped": getattr(account, "messages_skipped", 0) if account else 0,
+            "messages_insufficient_evidence": getattr(account, "messages_insufficient_evidence", 0) if account else 0,
+            "candidates_created": len(candidates),
+            "duplicates_skipped": getattr(account, "duplicates_skipped", 0) if account else 0,
+            "parsing_failures": getattr(account, "parsing_failures", 0) if account else 0,
+            "is_partial_scan": getattr(account, "is_partial_scan", False) if account else False,
+            "scan_limit": getattr(account, "scan_limit", max_messages) if account else max_messages,
+            "scan_date_range": getattr(account, "scan_date_range", None) if account else None,
+            "skip_reasons": getattr(account, "skip_reasons", {}) if account else {},
+            "failure_reasons": getattr(account, "failure_reasons", {}) if account else {},
         }
     except ValueError as e:
         raise HTTPException(
@@ -836,11 +938,12 @@ def sync_email(request: Request, max_messages: int = 50) -> Dict[str, Any]:
 def list_candidates(
     request: Request,
     review_status: Optional[str] = None,
+    account_id: Optional[str] = None,
 ) -> List[SubscriptionCandidate]:
     """List subscription candidates awaiting review."""
     from backend.app.database import list_subscription_candidates
     user_id = get_current_user_id(request)
-    return list_subscription_candidates(user_id=user_id, review_status=review_status)
+    return list_subscription_candidates(user_id=user_id, account_id=account_id, review_status=review_status)
 
 
 @app.post(
@@ -874,13 +977,121 @@ def dismiss_candidate_endpoint(candidate_id: str, request: Request) -> Dict[str,
     """Dismiss a candidate subscription."""
     from backend.app.email import dismiss_candidate
     user_id = get_current_user_id(request)
-    success = dismiss_candidate(candidate_id=candidate_id, user_id=user_id)
-    if not success:
+    try:
+        success = dismiss_candidate(candidate_id=candidate_id, user_id=user_id)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"code": "CANDIDATE_NOT_FOUND", "message": f"Candidate '{candidate_id}' not found."},
+            )
+        return {"status": "dismissed", "candidate_id": candidate_id}
+    except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail={"code": "CANDIDATE_NOT_FOUND", "message": f"Candidate '{candidate_id}' not found."},
+            detail={"code": "CANDIDATE_NOT_FOUND", "message": str(e)},
         )
-    return {"status": "dismissed", "candidate_id": candidate_id}
+
+
+@app.get(
+    "/api/email/diagnostics",
+    tags=["Email Discovery"],
+    summary="Get Detailed Email Discovery Diagnostics",
+    description="Returns sanitized diagnostic information on OAuth validity, connection status, sync metrics, and error state.",
+)
+def get_email_diagnostics(request: Request, account_id: Optional[str] = None) -> Dict[str, Any]:
+    """Retrieve sanitized diagnostic status for live or demo discovery."""
+    from backend.app.config import is_live_oauth_configured, validate_oauth_config
+    from backend.app.database import get_email_account, list_subscriptions_from_db
+    user_id = get_current_user_id(request)
+    is_live = is_live_oauth_configured()
+    oauth_valid, oauth_err = validate_oauth_config()
+    account = get_email_account(user_id, account_id=account_id)
+
+    db_subs = list_subscriptions_from_db(user_id=user_id, account_id=account_id, include_archived=True)
+    email_subs_count = sum(1 for s in db_subs if s.discovery_source == "email")
+    manual_subs_count = sum(1 for s in db_subs if s.discovery_source == "manual")
+
+    return {
+        "user_id": user_id,
+        "account_id": account_id,
+        "mode": "live" if is_live else "demo",
+        "is_live_configured": is_live,
+        "oauth_valid": oauth_valid,
+        "oauth_error": oauth_err if not oauth_valid else None,
+        "is_connected": account.is_connected if account else False,
+        "email_address": account.email_address if account and account.is_connected else None,
+        "account_name": getattr(account, "account_name", None) if account else None,
+        "provider": account.provider if account else "gmail",
+        "last_synced_at": account.last_synced_at.isoformat() if account and account.last_synced_at else None,
+        "sync_status": account.sync_status if account else "idle",
+        "candidate_count": account.candidate_count if account else 0,
+        "candidates_parsed": getattr(account, "candidate_count", 0) if account else 0,
+        "messages_discovered": getattr(account, "messages_discovered", 0) if account else 0,
+        "messages_retrieved": getattr(account, "messages_retrieved", 0) if account else 0,
+        "messages_parsed": getattr(account, "messages_parsed", 0) if account else 0,
+        "messages_skipped": getattr(account, "messages_skipped", 0) if account else 0,
+        "messages_insufficient_evidence": getattr(account, "messages_insufficient_evidence", 0) if account else 0,
+        "duplicates_skipped": getattr(account, "duplicates_skipped", 0) if account else 0,
+        "parsing_failures": getattr(account, "parsing_failures", 0) if account else 0,
+        "is_partial_scan": getattr(account, "is_partial_scan", False) if account else False,
+        "scan_limit": getattr(account, "scan_limit", 100) if account else 100,
+        "scan_date_range": getattr(account, "scan_date_range", None) if account else None,
+        "skip_reasons": getattr(account, "skip_reasons", {}) if account else {},
+        "failure_reasons": getattr(account, "failure_reasons", {}) if account else {},
+        "error_message": account.error_message if account else None,
+        "inventory_summary": {
+            "email_discovered_count": email_subs_count,
+            "manual_count": manual_subs_count,
+            "demo_mock_count": sum(1 for s in db_subs if (s.discovery_source or "connector") == "connector"),
+            "total_monitored_count": email_subs_count + manual_subs_count,
+        },
+    }
+
+
+@app.post(
+    "/api/demo/reset",
+    tags=["Email Discovery"],
+    summary="Reset Demo Data",
+    description="Development-only endpoint to safely clear synthetic demo candidates without affecting manual or genuine Gmail subscriptions.",
+)
+def reset_demo_endpoint(request: Request) -> Dict[str, Any]:
+    """Safely clear demo candidates and reset demo data."""
+    from backend.app.database import reset_demo_data
+    user_id = get_current_user_id(request)
+    return reset_demo_data(user_id=user_id)
+
+
+@app.post(
+    "/api/database/audit",
+    tags=["Database Maintenance"],
+    summary="Audit and Reconcile Database",
+    description="Inspects database records, identifies mock/synthetic fixtures and false positives, and reconciles candidates.",
+)
+def audit_database_endpoint(
+    request: Request,
+    req: Optional[DatabaseAuditRequest] = None,
+) -> Dict[str, Any]:
+    """Execute database audit and reconciliation."""
+    from backend.app.database import audit_and_reconcile_database
+    user_id = get_current_user_id(request)
+    dry_run = True if req is None or req.dry_run is None else req.dry_run
+    return audit_and_reconcile_database(user_id=user_id, dry_run=dry_run)
+
+
+@app.post(
+    "/api/database/repair",
+    tags=["Database Maintenance"],
+    summary="Repair Mixed-User Data Collisions",
+    description="Inspects database, reassigns misattributed candidates and subscriptions based on email provenance, with automatic backup.",
+)
+def repair_database_endpoint(
+    request: Request,
+    req: Optional[DatabaseAuditRequest] = None,
+) -> Dict[str, Any]:
+    """Execute database data collision repair and isolation enforcement."""
+    from backend.app.database import repair_mixed_data
+    dry_run = True if req is None or req.dry_run is None else req.dry_run
+    return repair_mixed_data(dry_run=dry_run)
 
 
 # ==============================================================================
@@ -1006,10 +1217,11 @@ def get_manual_action_guide(service_id: str) -> Dict[str, Any]:
     summary="Get Agent Run Status",
     description="Retrieves the current execution status and aggregated summary of an agent run.",
 )
-def get_run(run_id: str) -> AgentRun:
+def get_run(run_id: str, request: Request) -> AgentRun:
     """Retrieve run record by ID."""
+    user_id = get_current_user_id(request)
     run = get_agent_run_registry().get_run(run_id)
-    if run is None:
+    if run is None or (run.user_id and run.user_id != user_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "RESOURCE_NOT_FOUND", "message": f"Run ID '{run_id}' not found."},
@@ -1024,11 +1236,12 @@ def get_run(run_id: str) -> AgentRun:
     summary="Get Detailed Subscriptions in a Run",
     description="Returns detailed subscription states, evidence, evaluations, and plan details for a specific run.",
 )
-def get_run_subscriptions(run_id: str) -> RunSubscriptionsResponse:
+def get_run_subscriptions(run_id: str, request: Request) -> RunSubscriptionsResponse:
     """Retrieve all detailed subscription contexts within a specific run."""
+    user_id = get_current_user_id(request)
     run = get_agent_run_registry().get_run(run_id)
     contexts = get_agent_run_registry().get_context(run_id)
-    if run is None or contexts is None:
+    if run is None or contexts is None or (run.user_id and run.user_id != user_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "RESOURCE_NOT_FOUND", "message": f"Run ID '{run_id}' not found."},
@@ -1063,8 +1276,9 @@ def get_run_subscriptions(run_id: str) -> RunSubscriptionsResponse:
         "SAFETY: Approving one plan never authorizes actions for other subscriptions."
     ),
 )
-def approve_plan(plan_id: str, req: ApprovePlanRequest) -> Approval:
+def approve_plan(plan_id: str, req: ApprovePlanRequest, request: Request) -> Approval:
     """Validate explicit human approval and coordinate execution & verification."""
+    user_id = get_current_user_id(request)
     located = find_plan_context(plan_id)
     if located is None:
         raise HTTPException(
@@ -1073,6 +1287,13 @@ def approve_plan(plan_id: str, req: ApprovePlanRequest) -> Approval:
         )
 
     run_id, sub_id, state = located
+    run = get_agent_run_registry().get_run(run_id)
+    if run and run.user_id and run.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "RESOURCE_NOT_FOUND", "message": f"Plan ID '{plan_id}' does not exist."},
+        )
+
     plan = state.plan
     assert plan is not None
 
@@ -1177,8 +1398,9 @@ def approve_plan(plan_id: str, req: ApprovePlanRequest) -> Approval:
     summary="Decline Cancellation Plan",
     description="Declines cancellation of a proposed plan, keeping the subscription active.",
 )
-def decline_plan(plan_id: str, req: DeclinePlanRequest) -> Approval:
+def decline_plan(plan_id: str, req: DeclinePlanRequest, request: Request) -> Approval:
     """Register explicit user decline for a cancellation plan."""
+    user_id = get_current_user_id(request)
     located = find_plan_context(plan_id)
     if located is None:
         raise HTTPException(
@@ -1187,6 +1409,13 @@ def decline_plan(plan_id: str, req: DeclinePlanRequest) -> Approval:
         )
 
     run_id, sub_id, state = located
+    run = get_agent_run_registry().get_run(run_id)
+    if run and run.user_id and run.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "RESOURCE_NOT_FOUND", "message": f"Plan ID '{plan_id}' does not exist."},
+        )
+
     plan = state.plan
     assert plan is not None
 
@@ -1315,11 +1544,12 @@ def verify_action(action_id: str, req: VerifyActionRequest) -> VerificationResul
     summary="Get Agent Run Audit and Reconciliation Report",
     description="Generates a full audit trail and reconciliation report for a completed run.",
 )
-def get_run_report(run_id: str) -> RunReportResponse:
+def get_run_report(run_id: str, request: Request) -> RunReportResponse:
     """Generate comprehensive audit report for a specified run."""
+    user_id = get_current_user_id(request)
     run = get_agent_run_registry().get_run(run_id)
     contexts = get_agent_run_registry().get_context(run_id)
-    if run is None or contexts is None:
+    if run is None or contexts is None or (run.user_id and run.user_id != user_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "RESOURCE_NOT_FOUND", "message": f"Run ID '{run_id}' not found."},
@@ -1369,10 +1599,17 @@ def get_run_report(run_id: str) -> RunReportResponse:
     summary="Get Immutable Audit Events for a Run",
     description="Returns chronological audit trail events persisted in the durable SQLite store.",
 )
-def get_run_audit_trail(run_id: str) -> List[Dict[str, Any]]:
+def get_run_audit_trail(run_id: str, request: Request) -> List[Dict[str, Any]]:
     """Retrieve persisted audit events for a specified run."""
     from backend.app.database import list_audit_events
-    return list_audit_events(run_id)
+    user_id = get_current_user_id(request)
+    run = get_agent_run_registry().get_run(run_id)
+    if run is not None and run.user_id and run.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "RESOURCE_NOT_FOUND", "message": f"Run ID '{run_id}' not found."},
+        )
+    return list_audit_events(run_id, user_id=user_id)
 
 
 @app.get(

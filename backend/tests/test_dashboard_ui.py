@@ -75,7 +75,7 @@ def test_dashboard_js_lifecycle_and_deterministic_boot():
 def test_dashboard_subscription_details_and_policy_warnings():
     """Requirements 3 & 4: Verify subscription details, costs, renewal dates, and policy warnings."""
     # Backend contract verification
-    sub_resp = client.get("/subscriptions")
+    sub_resp = client.get("/subscriptions?source=demo")
     assert sub_resp.status_code == 200
     subs = sub_resp.json()
     assert len(subs) >= 5
@@ -212,7 +212,7 @@ def test_dashboard_static_middleware_cache_control_headers():
 def test_dashboard_integration_contract_fields_match_ui():
     """Verify backend API responses contain all fields expected by frontend drawer rendering."""
     # 1. Check subscriptions endpoint
-    sub_resp = client.get("/subscriptions")
+    sub_resp = client.get("/subscriptions?source=demo")
     assert sub_resp.status_code == 200
     subs = sub_resp.json()
     assert len(subs) >= 5

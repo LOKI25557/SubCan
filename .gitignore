@@ -64,5 +64,7 @@ Thumbs.db
 # SubCan transient run data & reports generated locally
 reports/*.csv
 reports/*.pdf
+reports/*.db
+reports/*.db-*
+reports/*.bak
 !reports/.gitkeep
-reports/subcan.db

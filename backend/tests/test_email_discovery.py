@@ -2,6 +2,7 @@ import base64
 from datetime import datetime, timedelta, timezone
 import hashlib
 import os
+import uuid
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -12,9 +13,11 @@ from backend.app.email import (
     confirm_candidate_into_inventory,
     disconnect_account,
     dismiss_candidate,
+    evaluate_billing_email,
     exchange_code_for_tokens,
     generate_oauth_url,
     get_valid_access_token,
+    group_and_deduplicate_candidates,
     is_live_oauth_configured,
     parse_billing_email,
     sync_user_mailbox,
@@ -200,7 +203,7 @@ def test_parser_filters_non_billing_emails():
 
 def test_sync_mailbox_and_candidate_confirmation():
     """Verify end-to-end sync, candidate review, confirmation into unified inventory."""
-    user_id = "user_sync_test"
+    user_id = f"user_sync_{uuid.uuid4().hex[:8]}"
 
     # 1. Connect mailbox first
     auth_resp = client.get("/api/email/oauth/url", headers={"X-User-ID": user_id})
@@ -250,7 +253,7 @@ def test_sync_mailbox_and_candidate_confirmation():
 
 def test_candidate_dismissal():
     """Verify dismissing a candidate updates status and does NOT add to inventory."""
-    user_id = "user_dismiss_test"
+    user_id = f"user_dismiss_{uuid.uuid4().hex[:8]}"
 
     # Connect & sync
     auth = client.get("/api/email/oauth/url", headers={"X-User-ID": user_id}).json()
@@ -654,3 +657,439 @@ def test_live_gmail_discovery_receipt_does_not_set_last_used():
     assert cand is not None
     # Crucial safety check: receipt arrival date does not establish user usage
     assert cand.detected_last_used is None
+
+
+def test_email_diagnostics_endpoint_returns_truthful_metrics():
+    """Verify /api/email/diagnostics returns sanitized, truthful operational diagnostics."""
+    resp = client.get("/api/email/diagnostics", headers={"X-User-ID": "user_diag_test"})
+    assert resp.status_code == 200
+    diag = resp.json()
+
+    assert "mode" in diag
+    assert "is_live_configured" in diag
+    assert "oauth_valid" in diag
+    assert "is_connected" in diag
+    assert "messages_retrieved" in diag
+    assert "duplicates_skipped" in diag
+    assert "parsing_failures" in diag
+    assert "candidate_count" in diag
+    assert "inventory_summary" in diag
+    assert "email_discovered_count" in diag["inventory_summary"]
+    assert "manual_count" in diag["inventory_summary"]
+    assert "demo_mock_count" in diag["inventory_summary"]
+
+
+def test_reset_demo_data_endpoint_safely_preserves_manual():
+    """Verify POST /api/demo/reset purges demo candidates but preserves manual user records."""
+    user_id = "user_reset_preserve_test"
+
+    # 1. Create a manual subscription
+    man_resp = client.post(
+        "/subscriptions",
+        json={"service_name": "Preserved Manual Service", "monthly_cost": 29.99},
+        headers={"X-User-ID": user_id},
+    )
+    assert man_resp.status_code == 201
+    man_sub_id = man_resp.json()["subscription_id"]
+
+    # 2. Simulate email sync to get demo candidates
+    auth = client.get("/api/email/oauth/url", headers={"X-User-ID": user_id}).json()
+    client.get(f"/api/email/oauth/callback?code=mock_reset_code&state={auth['state']}")
+    sync_resp = client.post("/api/email/sync", headers={"X-User-ID": user_id})
+    assert sync_resp.status_code == 200
+    candidates_before = client.get("/api/email/candidates", headers={"X-User-ID": user_id}).json()
+    assert len(candidates_before) > 0
+
+    # 3. Call reset demo data
+    reset_resp = client.post("/api/demo/reset", headers={"X-User-ID": user_id})
+    assert reset_resp.status_code == 200
+    assert reset_resp.json()["success"] is True
+
+    # 4. Verify demo candidates are gone
+    candidates_after = client.get("/api/email/candidates", headers={"X-User-ID": user_id}).json()
+    assert len(candidates_after) == 0
+
+    # 5. Verify manual subscription is intact
+    man_get = client.get(f"/subscriptions/{man_sub_id}", headers={"X-User-ID": user_id})
+    assert man_get.status_code == 200
+    assert man_get.json()["service_name"] == "Preserved Manual Service"
+
+
+def test_subscriptions_source_filtering():
+    """Verify /subscriptions accurately filters by source: demo, manual, and email."""
+    user_id = "user_filter_source_test"
+
+    # Add a manual subscription
+    client.post(
+        "/subscriptions",
+        json={"service_name": "Filtering Manual SaaS", "monthly_cost": 15.00},
+        headers={"X-User-ID": user_id},
+    )
+
+    # Filter demo: must return only demo/connector mock items
+    demo_resp = client.get("/subscriptions?source=demo", headers={"X-User-ID": user_id})
+    assert demo_resp.status_code == 200
+    for s in demo_resp.json():
+        assert (s.get("discovery_source") or "connector") in ("demo", "connector")
+
+    # Filter manual: must return only manual items
+    manual_resp = client.get("/subscriptions?source=manual", headers={"X-User-ID": user_id})
+    assert manual_resp.status_code == 200
+    manual_subs = manual_resp.json()
+    assert len(manual_subs) >= 1
+    for s in manual_subs:
+        assert s["discovery_source"] == "manual"
+
+
+def test_dashboard_ui_contains_source_filter_and_switch_tab():
+    """Verify frontend assets include switchTab, source filter, diagnostics, and reset button."""
+    app_js = client.get("/dashboard/app.js").text
+    assert "function switchTab(tabId)" in app_js
+    assert "window.switchTab = switchTab;" in app_js
+    assert '$("source-filter")' in app_js
+    assert "handleResetDemo" in app_js
+    assert "/api/email/diagnostics" in app_js
+
+    index_html = client.get("/dashboard/").text
+    assert 'id="source-filter"' in index_html
+    assert 'id="reset-demo-btn"' in index_html
+    assert 'id="email-diagnostics-card"' in index_html
+
+
+def test_live_gmail_candidate_401_refresh_retry():
+    """Verify _fetch_live_gmail_candidates retries automatically on HTTP 401 using refreshed token."""
+    call_count = {"list": 0}
+
+    def mock_401_handler(request: httpx.Request) -> httpx.Response:
+        url_str = str(request.url)
+        if "messages?" in url_str:
+            call_count["list"] += 1
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header == "Bearer initial_expired_token":
+                return httpx.Response(401, json={"error": {"code": 401, "message": "Token expired"}})
+            elif auth_header == "Bearer mock_access_token_demo_refreshed":
+                return httpx.Response(200, json={"messages": []})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(mock_401_handler)
+    mock_client = httpx.Client(transport=transport)
+
+    cands = _fetch_live_gmail_candidates(
+        access_token="initial_expired_token",
+        user_id="user_test_401",
+        max_messages=10,
+        client=mock_client,
+    )
+    assert cands == []
+    assert call_count["list"] == 2
+
+
+# =============================================================================
+# 8. Email Pipeline Diagnostic & Parsing Regression Tests
+# =============================================================================
+
+def test_regression_receipts_and_multi_currency():
+    """Verify receipt extraction with multiple currencies, comma decimals, and itemized totals."""
+    # 1. European currency with comma decimal
+    eur_email = (
+        "Bonjour,\n\n"
+        "Votre recu Spotify Premium individuel pour le mois de novembre.\n"
+        "Montant preleve : 14,99 \u20ac par mois.\n"
+        "Prochaine date de facturation : 15 decembre 2026.\n"
+        "Merci pour votre confiance.\n"
+    )
+    cand_eur = parse_billing_email(
+        message_id="msg_eur_receipt_01",
+        subject="Votre recu Spotify Premium",
+        sender="no-reply@spotify.com",
+        raw_content=eur_email,
+    )
+    assert cand_eur is not None
+    assert cand_eur.merchant_name == "Spotify"
+    assert cand_eur.estimated_cost == 14.99
+    assert cand_eur.currency == "EUR"
+    assert cand_eur.billing_interval == "monthly"
+    assert str(cand_eur.detected_renewal_date) == "2026-12-15"
+
+    # 2. British Pound invoice with separate subtotal and tax
+    gbp_email = (
+        "GitHub Invoice #GH-88219\n"
+        "Billed to: Loki\n"
+        "GitHub Copilot for Business\n"
+        "Subtotal: £16.00\n"
+        "VAT (0%): £0.00\n"
+        "Total charged: £16.00 GBP\n"
+        "Next renewal: 2026-11-20\n"
+    )
+    cand_gbp = parse_billing_email(
+        message_id="msg_gbp_receipt_02",
+        subject="Your GitHub receipt - Invoice #GH-88219",
+        sender="billing@github.com",
+        raw_content=gbp_email,
+    )
+    assert cand_gbp is not None
+    assert cand_gbp.merchant_name == "GitHub"
+    assert cand_gbp.estimated_cost == 16.00
+    assert cand_gbp.currency == "GBP"
+    assert str(cand_gbp.detected_renewal_date) == "2026-11-20"
+
+
+def test_regression_renewal_notice_with_evidence_based_confidence():
+    """Verify renewal notice extracts future renewal date and calculates evidence-based confidence."""
+    renewal_email = (
+        "Dear Customer,\n\n"
+        "Your Disney+ annual subscription will renew automatically on 2026-11-28.\n"
+        "The recurring charge of $139.99 USD will be billed to your card on file.\n"
+        "To make changes, manage your account at disneyplus.com.\n"
+    )
+    result = evaluate_billing_email(
+        message_id="msg_disney_renew_01",
+        subject="Upcoming Disney+ annual renewal notice",
+        sender="disneyplus@mail.disneyplus.com",
+        raw_content=renewal_email,
+    )
+    assert result.status == "candidate"
+    assert result.candidate is not None
+    cand = result.candidate
+    assert cand.merchant_name == "Disney+"
+    assert cand.estimated_cost == 139.99
+    assert cand.currency == "USD"
+    assert cand.billing_interval == "annual"
+    assert str(cand.detected_renewal_date) == "2026-11-28"
+    assert cand.confidence >= 0.85
+    assert cand.detected_last_used is None
+
+
+def test_regression_marketing_emails_skipped():
+    """Verify promotional marketing emails are safely skipped and not treated as parser failures."""
+    marketing_email = (
+        "Don't miss out! Special limited-time discount.\n"
+        "Upgrade today and save 50% on your next 3 months of Spotify Premium.\n"
+        "Try 30 days free! Click here to subscribe now.\n"
+    )
+    result = evaluate_billing_email(
+        message_id="msg_spotify_promo_01",
+        subject="Special offer: Save 50% on Spotify Premium today!",
+        sender="Spotify <marketing@spotify.com>",
+        raw_content=marketing_email,
+    )
+    assert result.status == "skipped"
+    assert result.reason == "marketing_promotional"
+    assert result.candidate is None
+
+    # parse_billing_email must return None
+    assert parse_billing_email(
+        message_id="msg_spotify_promo_01",
+        subject="Special offer: Save 50% on Spotify Premium today!",
+        sender="Spotify <marketing@spotify.com>",
+        raw_content=marketing_email,
+    ) is None
+
+
+def test_regression_github_notifications_and_irrelevant_skipped():
+    """Verify non-billing GitHub notifications, newsletters, and security alerts are classified as skipped."""
+    # 1. GitHub activity notification
+    gh_notification = (
+        "Loki commented on pull request #42:\n"
+        "We need to fix the payment confirmation logic and charge calculation.\n"
+        "Reply to this email directly or view it on GitHub.\n"
+    )
+    gh_result = evaluate_billing_email(
+        message_id="msg_gh_pr_01",
+        subject="[GitHub] Re: Loki commented on issue #42: Payment logic error",
+        sender="GitHub <notifications@github.com>",
+        raw_content=gh_notification,
+    )
+    assert gh_result.status == "skipped"
+    assert gh_result.reason == "github_activity_notification"
+
+    # 2. Account security alert
+    sec_email = (
+        "We noticed a new sign-in to your Google Account from a Windows device in San Jose, CA.\n"
+        "If this was you, you don't need to do anything. If not, secure your account.\n"
+    )
+    sec_result = evaluate_billing_email(
+        message_id="msg_sec_alert_01",
+        subject="Security alert: New sign-in on Windows",
+        sender="Google <no-reply@accounts.google.com>",
+        raw_content=sec_email,
+    )
+    assert sec_result.status == "skipped"
+    assert sec_result.reason == "account_security_or_auth"
+
+    # 3. Daily newsletter digest
+    news_email = (
+        "Here are today's top stories from The New York Times.\n"
+        "1. Global Markets Update\n"
+        "2. Tech News Roundup\n"
+        "Plan your weekend with our curated stories.\n"
+    )
+    news_result = evaluate_billing_email(
+        message_id="msg_nyt_news_01",
+        subject="The New York Times: Top stories of the morning - your daily briefing",
+        sender="The New York Times <newsletters@nytimes.com>",
+        raw_content=news_email,
+    )
+    assert news_result.status == "skipped"
+    assert news_result.reason == "newsletter_or_digest"
+
+    # 4. Physical shipping notification
+    ship_email = (
+        "Your Amazon package #112-99812 has shipped!\n"
+        "Tracking number: 1Z9999999999999999\n"
+        "Out for delivery by 8 PM tomorrow.\n"
+    )
+    ship_result = evaluate_billing_email(
+        message_id="msg_amz_ship_01",
+        subject="Your Amazon package has shipped",
+        sender="order-update@amazon.com",
+        raw_content=ship_email,
+    )
+    assert ship_result.status == "skipped"
+    assert ship_result.reason == "shipping_tracking"
+
+
+def test_regression_brand_mention_without_billing_evidence_skipped():
+    """Verify mere brand mention in conversational email is skipped without inferring a subscription."""
+    chat_email = (
+        "Hey! Have you seen that new sci-fi documentary on Netflix?\n"
+        "It's really cool, you should check it out when you have time.\n"
+    )
+    result = evaluate_billing_email(
+        message_id="msg_netflix_chat_01",
+        subject="Check out this cool show",
+        sender="colleague@example.com",
+        raw_content=chat_email,
+    )
+    assert result.status == "skipped"
+    assert result.candidate is None
+
+
+def test_regression_malformed_mime_content_handled_safely():
+    """Verify corrupted base64 or malformed MIME content records parsing failure without crashing."""
+    corrupt_data = "!!!NOT_VALID_BASE64_AT_ALL_$$$%%%"
+
+    def mock_corrupt_handler(request: httpx.Request) -> httpx.Response:
+        url_str = str(request.url)
+        if "messages?" in url_str:
+            return httpx.Response(200, json={"messages": [{"id": "msg_corrupt_01"}]})
+        elif "messages/msg_corrupt_01" in url_str:
+            return httpx.Response(
+                200,
+                json={
+                    "id": "msg_corrupt_01",
+                    "payload": {
+                        "headers": [
+                            {"name": "Subject", "value": "Receipt for your purchase"},
+                            {"name": "From", "value": "billing@spotify.com"},
+                        ],
+                        "parts": [
+                            {"mimeType": "text/html", "body": {"data": corrupt_data}},
+                        ],
+                    },
+                },
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(mock_corrupt_handler)
+    mock_client = httpx.Client(transport=transport)
+
+    metrics: Dict[str, Any] = {
+        "messages_retrieved": 0,
+        "candidates_created": 0,
+        "messages_skipped": 0,
+        "duplicates_skipped": 0,
+        "parsing_failures": 0,
+    }
+
+    candidates = _fetch_live_gmail_candidates(
+        access_token="mock_token",
+        user_id="user_corrupt_test",
+        max_messages=5,
+        client=mock_client,
+        metrics=metrics,
+    )
+
+    assert candidates == []
+    assert metrics["messages_retrieved"] == 1
+    assert metrics["parsing_failures"] == 1
+    assert metrics["failure_reasons"].get("malformed_mime") == 1
+
+
+def test_regression_duplicate_messages_in_batch():
+    """Verify multiple receipts for the same merchant in a single batch are deduplicated into one."""
+    cand1 = parse_billing_email(
+        message_id="msg_netflix_batch_01",
+        subject="Your Netflix invoice for October",
+        sender="billing@netflix.com",
+        raw_content="Payment of $15.49 received on October 1, 2026. Next renewal: 2026-11-01.",
+    )
+    cand2 = parse_billing_email(
+        message_id="msg_netflix_batch_02",
+        subject="Your Netflix invoice for November",
+        sender="billing@netflix.com",
+        raw_content="Payment of $15.49 received on November 1, 2026. Next renewal: 2026-12-01.",
+    )
+    assert cand1 is not None and cand2 is not None
+
+    deduped = group_and_deduplicate_candidates([cand1, cand2])
+    assert len(deduped) == 1
+    merged = deduped[0]
+    assert merged.merchant_name == "Netflix"
+    # Merged record retains latest renewal date
+    assert str(merged.detected_renewal_date) == "2026-12-01"
+
+
+def test_regression_repeated_sync_preserves_state_and_deduplicates():
+    """Verify repeated mailbox sync does not duplicate candidates or revert confirmed review status."""
+    user_id = f"user_repeated_sync_{uuid.uuid4().hex[:8]}"
+
+    # Step 1: Connect account
+    auth = client.get("/api/email/oauth/url", headers={"X-User-ID": user_id}).json()
+    client.get(f"/api/email/oauth/callback?code=mock_code&state={auth['state']}")
+
+    # Step 2: First sync -> 5 candidates created
+    sync1_resp = client.post("/api/email/sync", headers={"X-User-ID": user_id})
+    assert sync1_resp.status_code == 200
+    sync1_data = sync1_resp.json()
+    assert sync1_data["synced_count"] == 5
+    assert sync1_data["duplicates_skipped"] == 0
+    assert sync1_data["parsing_failures"] == 0
+
+    cands_1 = client.get("/api/email/candidates", headers={"X-User-ID": user_id}).json()
+    assert len(cands_1) == 5
+
+    # Step 3: Confirm first candidate (Netflix)
+    cand_to_confirm = next(c for c in cands_1 if "netflix" in c["candidate_id"].lower())
+    conf_resp = client.post(
+        f"/api/email/candidates/{cand_to_confirm['candidate_id']}/confirm",
+        headers={"X-User-ID": user_id},
+    )
+    assert conf_resp.status_code == 200
+
+    # Step 4: Second sync (Repeated Sync with identical messages)
+    sync2_resp = client.post("/api/email/sync", headers={"X-User-ID": user_id})
+    assert sync2_resp.status_code == 200
+    sync2_data = sync2_resp.json()
+
+    # Verify duplicate count accurately reflects collapsed repeat messages
+    assert sync2_data["duplicates_skipped"] >= 1
+    assert sync2_data["parsing_failures"] == 0
+
+    # Step 5: Verify candidates table: Confirmed candidate REMAINS confirmed and not duplicated
+    cands_2 = client.get("/api/email/candidates", headers={"X-User-ID": user_id}).json()
+    confirmed_cand = next(c for c in cands_2 if c["candidate_id"] == cand_to_confirm["candidate_id"])
+    assert confirmed_cand["review_status"] == "confirmed"
+
+    # Ensure total distinct candidates for this user didn't blow up with duplicates
+    merchant_names = [c["merchant_name"] for c in cands_2]
+    assert len(merchant_names) == len(set(merchant_names))
+
+    # Step 6: Verify diagnostics endpoint truthful reporting
+    diag_resp = client.get("/api/email/diagnostics", headers={"X-User-ID": user_id})
+    assert diag_resp.status_code == 200
+    diag = diag_resp.json()
+    assert diag["messages_retrieved"] == 5
+    assert diag["parsing_failures"] == 0
+    assert diag["duplicates_skipped"] >= 1
+    assert "messages_skipped" in diag

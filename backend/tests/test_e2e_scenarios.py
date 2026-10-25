@@ -141,7 +141,8 @@ def test_scenario_02_manual_subscription_entry_when_discovery_misses():
         "notes": "Custom VPS not found in billing emails.",
     }
 
-    resp = client.post("/subscriptions", json=payload)
+    test_headers = {"X-User-ID": "test_user_e2e_scen2"}
+    resp = client.post("/subscriptions", json=payload, headers=test_headers)
     assert resp.status_code == 201
     created = resp.json()
     assert created["service_name"] == "Specialty Dev Server Pro"
@@ -149,7 +150,7 @@ def test_scenario_02_manual_subscription_entry_when_discovery_misses():
     assert created["monthly_cost"] == 29.99
 
     # Verify retrieval
-    get_resp = client.get(f"/subscriptions/{created['subscription_id']}")
+    get_resp = client.get(f"/subscriptions/{created['subscription_id']}", headers=test_headers)
     assert get_resp.status_code == 200
     assert "Custom VPS not found in billing emails." in get_resp.json()["notes"]
 
@@ -202,7 +203,8 @@ def test_scenario_04_missing_renewal_or_usage_remains_unknown():
         "last_used_at": None,
         "status": "unknown",
     }
-    resp = client.post("/subscriptions", json=payload)
+    test_headers = {"X-User-ID": "test_user_e2e_scen4"}
+    resp = client.post("/subscriptions", json=payload, headers=test_headers)
     assert resp.status_code == 201
     created = resp.json()
 

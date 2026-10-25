@@ -19,6 +19,8 @@ from backend.app.email.oauth import (
     refresh_access_token,
 )
 from backend.app.email.parser import (
+    EmailParseResult,
+    evaluate_billing_email,
     extract_merchant,
     extract_monetary_amount,
     parse_billing_email,
@@ -43,6 +45,8 @@ __all__ = [
     "confirm_candidate_into_inventory",
     "dismiss_candidate",
     "parse_billing_email",
+    "evaluate_billing_email",
+    "EmailParseResult",
     "sanitize_email_content",
     "extract_merchant",
     "extract_monetary_amount",
