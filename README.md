@@ -185,16 +185,26 @@ Key environment variables:
 
 ## 6. Running the Application
 
-### Start Backend API & Dashboard
+### Live Deployed Backend (Render)
+
+SubCan's backend and control center dashboard are deployed live at:
+- **Production Base URL:** `https://subcan.onrender.com`
+- **Interactive Production Dashboard:** [https://subcan.onrender.com/dashboard/](https://subcan.onrender.com/dashboard/)
+- **Interactive Swagger Docs:** [https://subcan.onrender.com/docs](https://subcan.onrender.com/docs)
+- **ReDoc Documentation:** [https://subcan.onrender.com/redoc](https://subcan.onrender.com/redoc)
+- **System Health Endpoint:** [https://subcan.onrender.com/health](https://subcan.onrender.com/health)
+- **Acceptance Scorecard API:** [https://subcan.onrender.com/api/test-report](https://subcan.onrender.com/api/test-report)
+
+### Local Development
 
 ```bash
 uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-- **Interactive Dashboard:** [http://127.0.0.1:8000/dashboard/](http://127.0.0.1:8000/dashboard/)
-- **Interactive Swagger Docs:** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-- **ReDoc Documentation:** [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc)
-- **System Health:** [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+- **Interactive Local Dashboard:** [http://127.0.0.1:8000/dashboard/](http://127.0.0.1:8000/dashboard/)
+- **Interactive Local Swagger Docs:** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- **Local ReDoc:** [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc)
+- **Local System Health:** [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
 
 ---
 

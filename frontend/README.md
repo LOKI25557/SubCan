@@ -21,4 +21,9 @@ The dashboard at `/dashboard/` provides:
 3. **Safety Requirement:**
    - The approval interface must never offer a "Select All & Cancel" bulk button.
    - Each subscription cancellation must be reviewed and approved individually with full disclosure of provider consequences.
-4. Start the API with `uvicorn backend.app.main:app --reload`, then open `http://127.0.0.1:8000/dashboard/`.
+4. **Live Deployed Backend:**
+   - **Production Backend URL:** `https://subcan.onrender.com`
+   - **Live Production Dashboard:** [https://subcan.onrender.com/dashboard/](https://subcan.onrender.com/dashboard/)
+   - The dashboard dynamically points to the Render cloud backend by default and includes an **API Backend Switcher** in the top navigation bar to toggle between Render Cloud and Local development (`http://127.0.0.1:8000`).
+5. **Local Development (Optional):**
+   - Start the local API with `uvicorn backend.app.main:app --reload`, then open `http://127.0.0.1:8000/dashboard/`.
