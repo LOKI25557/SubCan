@@ -210,13 +210,13 @@ function formatCurrency(amount, currency = "INR") {
   const curr = (currency || "INR").toUpperCase();
   const locale = curr === "INR" ? "en-IN" : "en-US";
   const symbolMap = {
-    INR: "â‚¹",
+    INR: "₹",
     USD: "$",
-    EUR: "â‚¬",
-    GBP: "Â£",
+    EUR: "€",
+    GBP: "£",
     CAD: "CA$",
     AUD: "A$",
-    JPY: "Â¥",
+    JPY: "¥",
   };
   const symbol = symbolMap[curr] || (curr + " ");
   try {
@@ -317,7 +317,7 @@ function renderRows() {
       let statusBadge = getLifecycleBadge(sub.status, sub.lifecycle_status);
 
       // Eligibility badge
-      let eligBadge = `<span class="badge">â€”</span>`;
+      let eligBadge = `<span class="badge">—</span>`;
       if (decision) {
         if (decision.eligibility === "candidate") eligBadge = badge("Candidate", "candidate");
         else if (decision.eligibility === "needs_review") eligBadge = badge("Needs Review", "warning");
@@ -338,7 +338,7 @@ function renderRows() {
 
       const costStr = typeof sub.monthly_cost === "number" ? `${formatCurrency(sub.monthly_cost, sub.currency)}/mo` : "Unknown";
       const lastUsed = formatDate(sub.last_used_at);
-      let renewalHtml = escapeHtml(sub.renewal_date || "â€”");
+      let renewalHtml = escapeHtml(sub.renewal_date || "—");
       if (sub.trial_end_date) {
         renewalHtml += `<div style="font-size: 10px; color: var(--text-muted);">Trial ends: ${escapeHtml(sub.trial_end_date)}</div>`;
       }
