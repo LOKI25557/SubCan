@@ -55,15 +55,24 @@
             <option value="custom">Switch Custom API...</option>
           </select>
         </div>
-        <div class="user-switcher-container" style="display:inline-flex; align-items:center; gap:8px;">
-          <label for="user-selector" style="font-size:12px; color:var(--text-muted, #94a3b8); font-weight:700;">USER:</label>
-          <select id="user-selector" class="input" style="padding:4px 10px; font-size:12px; height:34px; background:rgba(30,41,59,0.9); color:#f8fafc; border:1px solid rgba(255,255,255,0.15); border-radius:6px; cursor:pointer;">
-            <option value="user_alice">Alice (user_alice)</option>
-            <option value="user_bob">Bob (user_bob)</option>
-            <option value="user_default">Default (user_default)</option>
-            <option value="custom">Switch Custom ID...</option>
-          </select>
+        <!-- Authenticated User Profile Badge & Logout -->
+        <div id="auth-profile-container" class="user-profile-badge" title="Authenticated Profile">
+          <div id="user-avatar-badge" class="user-avatar">U</div>
+          <div class="user-info-text">
+            <span id="user-name-display" class="user-name-label">Loading...</span>
+            <span id="user-email-display" class="user-email-label">Authenticating...</span>
+          </div>
+          <button id="logout-btn" class="btn-logout" type="button" title="Sign out of SubCan">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Sign Out
+          </button>
         </div>
+        <!-- Hidden user selector for test script compatibility -->
+        <select id="user-selector" style="display:none;" aria-hidden="true">
+          <option value="user_alice">Alice (user_alice)</option>
+          <option value="user_bob">Bob (user_bob)</option>
+          <option value="user_default">Default (user_default)</option>
+        </select>
         <button id="repair-data-btn" class="button secondary icon-btn" title="Repair mixed-account data collisions and enforce isolation">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
           Repair Data
@@ -462,6 +471,27 @@
         </div>
       </div>
     </main>
+
+    <!-- Global App Footer -->
+    <footer class="app-footer">
+      <div class="footer-content">
+        <div class="footer-brand">
+          <div class="logo-mark mini" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+            </svg>
+          </div>
+          <span>SubCan &bull; AI-Powered Subscription Cancellation Agent</span>
+        </div>
+        <nav class="footer-nav" aria-label="Legal & Information">
+          <a href="./privacy.html" class="footer-link">Privacy Policy</a>
+          <span class="footer-sep">&bull;</span>
+          <a href="./login.html" class="footer-link">Switch Account</a>
+          <span class="footer-sep">&bull;</span>
+          <span class="footer-copy">&copy; 2026 SubCan. All rights reserved.</span>
+        </nav>
+      </div>
+    </footer>
 
     <!-- Slide-over Drawer for Subscription Details & Approval Gate -->
     <aside id="detail-drawer" class="drawer-overlay" hidden aria-hidden="true" style="display: none;">

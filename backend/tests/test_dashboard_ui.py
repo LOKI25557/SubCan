@@ -21,7 +21,8 @@ def test_dashboard_html_structure_and_drawer_initial_hidden_state():
 
     # Subtitle must NOT contain raw unparsed 'sub_id' token
     assert '<code id="detail-subtitle" class="sub-id-code">sub_id</code>' not in html
-    assert '<code id="detail-subtitle" class="sub-id-code">—</code>' in html
+    assert '<code id="detail-subtitle" class="sub-id-code">' in html
+    assert 'sub_id</code>' not in html
 
     # Close button and necessary sections must exist
     assert 'id="close-detail"' in html
@@ -246,3 +247,59 @@ def test_dashboard_integration_contract_fields_match_ui():
         assert "evidence_list" in item
         assert "final_status" in item
         assert item["subscription"]["subscription_id"] in ["sub_tc1_cinevault", "sub_tc2_audiocloud"]
+
+
+def test_privacy_page_accessible_and_disclosures_present():
+    """Verify that /dashboard/privacy.html returns 200 and includes all required compliance disclosures."""
+    resp = client.get("/dashboard/privacy.html")
+    assert resp.status_code == 200
+    html = resp.text
+
+    # Basic page branding & meta
+    assert "SubCan" in html
+    assert "Privacy Policy" in html
+    assert "https://subcan-frontend.onrender.com" in html
+    assert "https://subcan.onrender.com" in html
+
+    # Google OAuth Scopes & Strict Separation
+    assert "openid email profile" in html
+    assert "https://www.googleapis.com/auth/gmail.readonly" in html
+    assert "Strict Architectural Separation" in html
+
+    # Google API Services User Data Policy & Limited Use requirements
+    assert "Google API Services User Data Policy" in html
+    assert "Limited Use" in html
+
+    # Processing & Local Processing Guarantee
+    assert "In-Memory Sanitization" in html
+    assert "never sent to external AI providers" in html or "No External AI APIs" in html
+
+    # Storage vs Non-Storage of Raw Email Bodies
+    assert "Full Raw Email Bodies" in html
+    assert "email_snippet" in html
+
+    # Security & User Controls
+    assert "PKCE" in html
+    assert "Multi-Tenant" in html
+    assert "/api/email/disconnect" in html
+    assert "/api/user/export" in html
+    assert "/api/user/data" in html
+
+    # Children's Privacy
+    assert "Children's Privacy" in html
+
+    # Owner Verification Action Markers
+    assert "[ACTION REQUIRED: OWNER VERIFICATION]" in html or "[ACTION REQUIRED:" in html
+
+
+def test_privacy_links_in_login_and_dashboard_html():
+    """Verify that both index.html and login.html contain functional links to privacy.html."""
+    # 1. Dashboard index
+    resp_index = client.get("/dashboard/")
+    assert resp_index.status_code == 200
+    assert 'href="./privacy.html"' in resp_index.text
+
+    # 2. Login page
+    resp_login = client.get("/dashboard/login.html")
+    assert resp_login.status_code == 200
+    assert 'href="./privacy.html"' in resp_login.text

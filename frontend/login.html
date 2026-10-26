@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="SubCan - AI-Powered Subscription Management. Discover recurring payments, review unused subscriptions, and make informed decisions from one secure dashboard.">
+  <title>SubCan — Sign In | AI-Powered Subscription Management</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css?v=2.2">
+  <!-- Google Identity Services client library -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body class="auth-body">
+  <div class="auth-page-wrapper">
+    <!-- Ambient glowing backdrop effect -->
+    <div class="auth-glow auth-glow-1"></div>
+    <div class="auth-glow auth-glow-2"></div>
+
+    <main class="auth-card" role="main">
+      <!-- Brand & Header -->
+      <header class="auth-header">
+        <div class="auth-brand">
+          <div class="logo-mark" aria-hidden="true">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+            </svg>
+          </div>
+          <div class="brand-text-group">
+            <h1 class="brand-title">SubCan</h1>
+            <span class="auth-subtitle">AI-Powered Subscription Management</span>
+          </div>
+        </div>
+
+        <div class="auth-hero">
+          <h2 class="auth-main-heading">Take control of your subscriptions.</h2>
+          <p class="auth-lead-text">
+            Discover recurring payments, review unused subscriptions, and make informed decisions from one secure dashboard.
+          </p>
+        </div>
+      </header>
+
+      <!-- Status & Error Alert Banners -->
+      <div id="auth-alert" class="auth-alert" role="alert" hidden>
+        <div class="auth-alert-icon" id="auth-alert-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+        </div>
+        <div class="auth-alert-content">
+          <strong id="auth-alert-title">Authentication notice</strong>
+          <p id="auth-alert-msg"></p>
+        </div>
+        <button id="auth-alert-close" class="auth-alert-close" aria-label="Close alert">&times;</button>
+      </div>
+
+      <!-- Authentication Action Section -->
+      <section class="auth-actions-section" aria-labelledby="signin-heading">
+        <h3 id="signin-heading" class="sr-only">Sign in to SubCan</h3>
+
+        <!-- Primary: Google Sign In Button -->
+        <button id="google-signin-btn" class="google-btn" type="button" aria-label="Continue with Google">
+          <span class="google-btn-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+            </svg>
+          </span>
+          <span class="google-btn-label" id="google-btn-label">Continue with Google</span>
+          <span class="google-btn-spinner" id="google-btn-spinner" hidden>
+            <svg class="spinner-svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+              <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/>
+            </svg>
+          </span>
+        </button>
+
+        <!-- Hidden Native GIS Container for automatic rendering if available -->
+        <div id="g_id_onload" class="g-signin-placeholder" hidden></div>
+
+        <!-- Retry and Cancel controls (visible when an error occurs) -->
+        <div id="auth-recovery-controls" class="auth-recovery-controls" hidden>
+          <button id="auth-retry-btn" class="button secondary small" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
+            </svg>
+            Try Again
+          </button>
+          <button id="auth-cancel-btn" class="button secondary small" type="button">Dismiss</button>
+        </div>
+      </section>
+
+      <!-- Security, Scope Separation & Privacy Notices -->
+      <section class="auth-notices-container" aria-label="Privacy and Authorization Details">
+        <!-- Identity notice -->
+        <div class="auth-notice-card">
+          <div class="notice-icon-bubble">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+          </div>
+          <div class="notice-text">
+            <strong>Secure Identity Authentication</strong>
+            <p>
+              Google Sign-In is strictly used to verify your identity, verified email, and profile name. No password is ever stored on SubCan servers.
+            </p>
+          </div>
+        </div>
+
+        <!-- Gmail Scope Separation notice -->
+        <div class="auth-notice-card scope-notice">
+          <div class="notice-icon-bubble email-bubble">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+              <polyline points="22,6 12,13 2,6"/>
+            </svg>
+          </div>
+          <div class="notice-text">
+            <strong>Mailbox Access Is Strictly Separate</strong>
+            <p>
+              Signing in <em>does not</em> grant SubCan access to your emails. Mailbox scanning for subscription discovery requires an explicit, separate read-only authorization that you can grant or revoke at any time from your dashboard.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Testing & Developer Demonstration Access (Only enabled for local dev / explicit testing) -->
+      <section class="auth-demo-section" id="auth-demo-section" style="display: none;">
+        <details class="demo-details" id="demo-details">
+          <summary class="demo-summary">
+            <span>Developer / Demonstration Access</span>
+            <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          </summary>
+          <div class="demo-body">
+            <p class="demo-hint">
+              Use for local development or evaluating account isolation without connecting a live Google Cloud project.
+            </p>
+            <div class="demo-buttons-group">
+              <button class="button secondary small demo-login-btn" type="button" data-user="user_alice" data-name="Alice Morgan" data-email="alice@example.com">
+                Sign in as Alice (user_alice)
+              </button>
+              <button class="button secondary small demo-login-btn" type="button" data-user="user_bob" data-name="Bob Smith" data-email="bob@example.com">
+                Sign in as Bob (user_bob)
+              </button>
+            </div>
+            <div class="api-target-wrapper">
+              <label for="login-api-selector" class="api-label">Backend API Target:</label>
+              <select id="login-api-selector" class="input input-sm">
+                <option value="https://subcan.onrender.com">Cloud (subcan.onrender.com)</option>
+                <option value="http://127.0.0.1:8000">Local (127.0.0.1:8000)</option>
+                <option value="custom">Switch Custom Base URL...</option>
+              </select>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <!-- Footer Links: Privacy Policy & Terms of Service -->
+      <footer class="auth-footer">
+        <nav class="auth-legal-nav" aria-label="Legal terms">
+          <a href="./privacy.html" class="legal-link" id="privacy-policy-link">Privacy Policy</a>
+          <span class="legal-sep" aria-hidden="true">&bull;</span>
+          <button id="open-privacy-modal" class="legal-link" type="button" style="display: none;" aria-hidden="true">Privacy Preview</button>
+          <button id="open-terms-modal" class="legal-link" type="button">Terms of Service</button>
+          <span class="legal-sep" aria-hidden="true">&bull;</span>
+          <span class="legal-copy">&copy; 2026 SubCan</span>
+        </nav>
+      </footer>
+    </main>
+  </div>
+
+  <!-- Privacy Policy Modal Dialog -->
+  <dialog id="privacy-modal" class="legal-modal" aria-labelledby="privacy-modal-title">
+    <div class="legal-modal-card">
+      <header class="legal-modal-header">
+        <h3 id="privacy-modal-title">SubCan Privacy Policy</h3>
+        <button class="legal-modal-close" id="close-privacy-modal" aria-label="Close dialog">&times;</button>
+      </header>
+      <div class="legal-modal-body">
+        <p><strong>Effective Date:</strong> January 1, 2026</p>
+        <h4>1. Authentication & Identity Data</h4>
+        <p>When you sign in using Google Identity Services, SubCan receives and verifies your Google subject identifier (sub), your primary email address, and your display name. We use this information strictly to identify your account session and isolate your subscription records.</p>
+        <h4>2. Gmail Mailbox Authorization (Optional)</h4>
+        <p>Connecting your Gmail mailbox requires separate, explicit authorization for <code>https://www.googleapis.com/auth/gmail.readonly</code>. SubCan only scans message headers and billing receipts for recurring payment patterns and subscription confirmations. We never sell your personal data or read unassociated personal messages.</p>
+        <h4>3. Data Retention & Isolation</h4>
+        <p>Each user's data is stored with multi-tenant account isolation. You can export or request complete deletion of your records and revoke email authorization at any time directly through the dashboard.</p>
+        <p style="margin-top: 10px;">
+          <a href="./privacy.html" class="button secondary small" style="display: inline-flex; align-items: center; gap: 6px;">
+            Read Comprehensive Production Privacy Policy &rarr;
+          </a>
+        </p>
+      </div>
+      <footer class="legal-modal-footer">
+        <button class="button primary small close-modal-btn" type="button" data-modal="privacy-modal">Understood</button>
+      </footer>
+    </div>
+  </dialog>
+
+  <!-- Terms of Service Modal Dialog -->
+  <dialog id="terms-modal" class="legal-modal" aria-labelledby="terms-modal-title">
+    <div class="legal-modal-card">
+      <header class="legal-modal-header">
+        <h3 id="terms-modal-title">SubCan Terms of Service</h3>
+        <button class="legal-modal-close" id="close-terms-modal" aria-label="Close dialog">&times;</button>
+      </header>
+      <div class="legal-modal-body">
+        <p><strong>Effective Date:</strong> January 1, 2026</p>
+        <h4>1. Acceptance of Terms</h4>
+        <p>By accessing or using SubCan, you agree to these Terms of Service. If you disagree with any part, you may not use the platform.</p>
+        <h4>2. Subscription Analysis & Actions</h4>
+        <p>SubCan provides AI-assisted detection of recurring subscription payments and automated cancellation workflows. You maintain final authority and approval over any cancellation actions initiated on your behalf.</p>
+        <h4>3. Security & Access Control</h4>
+        <p>You are responsible for maintaining the confidentiality of your Google authentication credentials. Access to our services is subject to fair use and compliance with all applicable data protection regulations.</p>
+      </div>
+      <footer class="legal-modal-footer">
+        <button class="button primary small close-modal-btn" type="button" data-modal="terms-modal">I Agree</button>
+      </footer>
+    </div>
+  </dialog>
+
+  <!-- Inline Auth Client Logic -->
+  <script>
+    (function() {
+      const DEFAULT_BACKEND_URL = "https://subcan.onrender.com";
+
+      function getBackendUrl() {
+        const custom = localStorage.getItem("subcan_backend_url");
+        if (custom && custom.trim()) {
+          return custom.trim().replace(/\/+$/, "");
+        }
+        if (typeof window !== "undefined" && window.location && window.location.origin) {
+          const origin = window.location.origin;
+          if (origin === "https://subcan.onrender.com" || origin.includes("localhost:8000") || origin.includes("127.0.0.1:8000")) {
+            return origin;
+          }
+        }
+        return DEFAULT_BACKEND_URL;
+      }
+
+      function setBackendUrl(url) {
+        if (url && url.trim()) {
+          localStorage.setItem("subcan_backend_url", url.trim().replace(/\/+$/, ""));
+        } else {
+          localStorage.removeItem("subcan_backend_url");
+        }
+      }
+
+      function showAlert(message, type = "info", title = "") {
+        const alertEl = document.getElementById("auth-alert");
+        const msgEl = document.getElementById("auth-alert-msg");
+        const titleEl = document.getElementById("auth-alert-title");
+        if (!alertEl || !msgEl) return;
+        if (!message) {
+          alertEl.hidden = true;
+          return;
+        }
+        msgEl.textContent = message;
+        titleEl.textContent = title || (type === "error" ? "Authentication Failed" : "Notice");
+        alertEl.className = "auth-alert " + type;
+        alertEl.hidden = false;
+        if (type === "error") {
+          document.getElementById("auth-recovery-controls").hidden = false;
+        }
+      }
+
+      function hideAlert() {
+        const alertEl = document.getElementById("auth-alert");
+        if (alertEl) alertEl.hidden = true;
+        const rec = document.getElementById("auth-recovery-controls");
+        if (rec) rec.hidden = true;
+      }
+
+      function setButtonLoading(loading) {
+        const btn = document.getElementById("google-signin-btn");
+        const label = document.getElementById("google-btn-label");
+        const spinner = document.getElementById("google-btn-spinner");
+        if (!btn || !label || !spinner) return;
+        btn.disabled = loading;
+        if (loading) {
+          label.textContent = "Connecting to Google...";
+          spinner.hidden = false;
+        } else {
+          label.textContent = "Continue with Google";
+          spinner.hidden = true;
+        }
+      }
+
+      function redirectToDashboard(sessionToken, userId) {
+        if (sessionToken) {
+          localStorage.setItem("subcan_session_token", sessionToken);
+        }
+        if (userId) {
+          localStorage.setItem("subcan_user_id", userId);
+        }
+        // Determine dashboard URL: ./index.html relative to current location
+        const target = "./index.html" + (sessionToken ? ("#session_token=" + encodeURIComponent(sessionToken)) : "");
+        window.location.href = target;
+      }
+
+      // Check if user already has an active session
+      async function checkExistingSession() {
+        const existingToken = localStorage.getItem("subcan_session_token");
+        if (!existingToken) return;
+
+        try {
+          const res = await fetch(getBackendUrl() + "/api/auth/me", {
+            headers: {
+              "Authorization": "Bearer " + existingToken
+            },
+            credentials: "include"
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.user_id) {
+              showAlert("Existing session active. Redirecting to dashboard...", "success", "Welcome Back");
+              setTimeout(() => {
+                redirectToDashboard(existingToken, data.user_id);
+              }, 400);
+            }
+          } else {
+            // Session expired or invalid
+            localStorage.removeItem("subcan_session_token");
+          }
+        } catch (err) {
+          console.warn("Session check error:", err);
+        }
+      }
+
+      // Process Google ID Token from Google Identity Services
+      async function handleGoogleCredentialResponse(response) {
+        if (!response || !response.credential) {
+          showAlert("Did not receive identity credentials from Google. Please try again.", "error");
+          setButtonLoading(false);
+          return;
+        }
+
+        setButtonLoading(true);
+        hideAlert();
+
+        try {
+          const res = await fetch(getBackendUrl() + "/api/auth/google", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            credentials: "include",
+            body: JSON.stringify({ id_token: response.credential })
+          });
+
+          const data = await res.json().catch(() => ({}));
+
+          if (!res.ok) {
+            const msg = data.error?.message || data.detail?.message || "Google token verification failed.";
+            throw new Error(msg);
+          }
+
+          showAlert("Sign in successful! Loading your dashboard...", "success", "Verified");
+          setTimeout(() => {
+            redirectToDashboard(data.session_token, data.user?.user_id);
+          }, 500);
+        } catch (err) {
+          setButtonLoading(false);
+          showAlert(err.message || "Failed to authenticate with SubCan backend.", "error");
+        }
+      }
+
+      // Fallback: initiate Google OAuth 2.0 / OpenID Connect authorization code flow via backend
+      async function initiateGoogleRedirectFlow() {
+        setButtonLoading(true);
+        hideAlert();
+
+        try {
+          const res = await fetch(getBackendUrl() + "/api/auth/google/url", {
+            credentials: "include"
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.authorization_url) {
+            const msg = data.error?.message || data.detail?.message || "Failed to generate Google Sign-In URL.";
+            throw new Error(msg);
+          }
+
+          // Redirect browser to Google Sign-In
+          window.location.href = data.authorization_url;
+        } catch (err) {
+          setButtonLoading(false);
+          showAlert(err.message || "Failed to start Google authentication.", "error");
+        }
+      }
+
+      // Handle Demo Login
+      async function handleDemoLogin(userId, name, email) {
+        setButtonLoading(true);
+        hideAlert();
+
+        try {
+          const res = await fetch(getBackendUrl() + "/api/auth/demo-login", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            credentials: "include",
+            body: JSON.stringify({ user_id: userId, name: name, email: email })
+          });
+
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            const msg = data.error?.message || data.detail?.message || "Demo login failed.";
+            throw new Error(msg);
+          }
+
+          showAlert(`Signed in as ${name}. Redirecting to dashboard...`, "success", "Demo Mode");
+          setTimeout(() => {
+            redirectToDashboard(data.session_token, data.user?.user_id);
+          }, 400);
+        } catch (err) {
+          setButtonLoading(false);
+          showAlert(err.message || "Demo login request failed.", "error");
+        }
+      }
+
+      // Initialize Google Identity Services SDK
+      async function initGoogleIdentityServices() {
+        let clientId = "732190779152-ukqcft0m8kghsut1vi3l71stgjgfd81r.apps.googleusercontent.com";
+        try {
+          const res = await fetch(getBackendUrl() + "/api/auth/google/url");
+          if (res.ok) {
+            const data = await res.json();
+            if (data.client_id) {
+              clientId = data.client_id;
+            }
+          }
+        } catch (e) {
+          // Fallback to default client ID
+        }
+
+        if (typeof google !== "undefined" && google.accounts && google.accounts.id) {
+          try {
+            google.accounts.id.initialize({
+              client_id: clientId,
+              callback: handleGoogleCredentialResponse,
+              auto_select: false,
+              cancel_on_tap_outside: true,
+            });
+            // Try One Tap prompt unobtrusively
+            google.accounts.id.prompt((notification) => {
+              if (notification.isNotDisplayed()) {
+                console.log("GIS One Tap not displayed:", notification.getNotDisplayedReason());
+              } else if (notification.isSkippedMoment()) {
+                console.log("GIS One Tap skipped:", notification.getSkippedReason());
+              } else if (notification.isDismissedMoment()) {
+                console.log("GIS One Tap dismissed:", notification.getDismissedReason());
+              }
+            });
+          } catch (e) {
+            console.warn("Google Identity Services initialization notice:", e);
+          }
+        }
+      }
+
+      // Event Wiring
+      document.addEventListener("DOMContentLoaded", () => {
+        // Show developer section ONLY on localhost/127.0.0.1 or explicit dev/demo query param
+        const host = window.location.hostname;
+        const isDevHost = host === "localhost" || host === "127.0.0.1" || 
+                          window.location.search.includes("dev=1") || 
+                          window.location.search.includes("demo=1") ||
+                          window.location.hash.includes("dev=1");
+        const devSec = document.getElementById("auth-demo-section");
+        if (devSec && isDevHost) {
+          devSec.style.display = "block";
+        }
+
+        // Check for error parameters in URL (e.g. from OAuth redirect)
+        const urlParams = new URLSearchParams(window.location.search);
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const authError = urlParams.get("error") || hashParams.get("error");
+        if (authError) {
+          showAlert(authError, "error", "Sign-in Cancelled or Denied");
+        }
+
+        // Check if session token passed in hash
+        const sessionToken = hashParams.get("session_token");
+        if (sessionToken) {
+          redirectToDashboard(sessionToken, hashParams.get("user_id"));
+          return;
+        }
+
+        // Check existing session
+        checkExistingSession();
+
+        // Primary Google button action: initiate secure OpenID Connect authorization-code flow with PKCE
+        const googleBtn = document.getElementById("google-signin-btn");
+        if (googleBtn) {
+          googleBtn.addEventListener("click", () => {
+            initiateGoogleRedirectFlow();
+          });
+        }
+
+        // Retry & Cancel buttons
+        document.getElementById("auth-retry-btn")?.addEventListener("click", () => {
+          hideAlert();
+          googleBtn?.click();
+        });
+        document.getElementById("auth-cancel-btn")?.addEventListener("click", hideAlert);
+        document.getElementById("auth-alert-close")?.addEventListener("click", hideAlert);
+
+        // Demo buttons
+        document.querySelectorAll(".demo-login-btn").forEach(btn => {
+          btn.addEventListener("click", (e) => {
+            const uid = e.target.getAttribute("data-user");
+            const name = e.target.getAttribute("data-name");
+            const email = e.target.getAttribute("data-email");
+            handleDemoLogin(uid, name, email);
+          });
+        });
+
+        // Backend Switcher
+        const apiSelector = document.getElementById("login-api-selector");
+        if (apiSelector) {
+          const currentUrl = getBackendUrl();
+          if (currentUrl === "https://subcan.onrender.com" || currentUrl === "http://127.0.0.1:8000") {
+            apiSelector.value = currentUrl;
+          } else {
+            apiSelector.value = "custom";
+          }
+
+          apiSelector.addEventListener("change", (e) => {
+            let val = e.target.value;
+            if (val === "custom") {
+              const entered = prompt("Enter Backend API Base URL:", getBackendUrl());
+              if (!entered || !entered.trim()) {
+                apiSelector.value = getBackendUrl();
+                return;
+              }
+              val = entered.trim().replace(/\/+$/, "");
+            }
+            setBackendUrl(val);
+            showAlert("Switched backend API target to: " + val, "info");
+          });
+        }
+
+        // Modals
+        const privModal = document.getElementById("privacy-modal");
+        const termsModal = document.getElementById("terms-modal");
+
+        document.getElementById("open-privacy-modal")?.addEventListener("click", () => privModal?.showModal());
+        document.getElementById("close-privacy-modal")?.addEventListener("click", () => privModal?.close());
+        document.getElementById("open-terms-modal")?.addEventListener("click", () => termsModal?.showModal());
+        document.getElementById("close-terms-modal")?.addEventListener("click", () => termsModal?.close());
+
+        document.querySelectorAll(".close-modal-btn").forEach(btn => {
+          btn.addEventListener("click", (e) => {
+            const id = e.target.getAttribute("data-modal");
+            document.getElementById(id)?.close();
+          });
+        });
+
+        // Initialize GIS after slight delay for script load
+        setTimeout(initGoogleIdentityServices, 600);
+      });
+    })();
+  </script>
+</body>
+</html>
