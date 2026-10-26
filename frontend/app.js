@@ -24,8 +24,28 @@ const state = {
 const $ = (id) => document.getElementById(id);
 
 // -----------------------------------------------------------------------------
-// User Identity & Tenant Context Helpers
+// User Identity, Session & Tenant Context Helpers
 // -----------------------------------------------------------------------------
+
+function getSessionToken() {
+  return localStorage.getItem("subcan_session_token") || "";
+}
+
+function setSessionToken(token) {
+  if (token && token.trim()) {
+    localStorage.setItem("subcan_session_token", token.trim());
+  } else {
+    localStorage.removeItem("subcan_session_token");
+  }
+}
+
+function redirectToLogin(reason) {
+  setSessionToken("");
+  const currentPath = window.location.pathname;
+  if (currentPath.endsWith("login.html")) return;
+  const q = reason ? `?error=${encodeURIComponent(reason)}` : "";
+  window.location.href = `./login.html${q}`;
+}
 
 function getCurrentUserId() {
   return localStorage.getItem("subcan_user_id") || "user_alice";
@@ -117,12 +137,21 @@ function resolveApiUrl(url) {
 async function api(url, options = {}) {
   const targetUrl = resolveApiUrl(url);
   const headers = Object.assign({}, options.headers || {});
+  const sessionToken = getSessionToken();
+  if (sessionToken && !headers["Authorization"]) {
+    headers["Authorization"] = `Bearer ${sessionToken}`;
+  }
   if (!headers["X-User-ID"]) {
     headers["X-User-ID"] = getCurrentUserId();
   }
-  const opts = Object.assign({}, options, { headers });
+  const opts = Object.assign({ credentials: "include" }, options, { headers });
   const response = await fetch(targetUrl, opts);
   const data = await response.json().catch(() => ({}));
+  if (response.status === 401) {
+    if (!window.location.search.includes("bypass_auth=1") && !url.includes("/api/auth/logout")) {
+      redirectToLogin("Your session has expired. Please sign in again.");
+    }
+  }
   if (!response.ok) {
     const errorMsg = data.error?.message || data.detail?.message || `Request failed (${response.status})`;
     throw new Error(errorMsg);
@@ -131,7 +160,7 @@ async function api(url, options = {}) {
 }
 
 function badge(text, variant = "") {
-  const clean = escapeHtml(String(text || "—").replaceAll("_", " "));
+  const clean = escapeHtml(String(text || "â€”").replaceAll("_", " "));
   const safeVariant = escapeHtml(variant);
   return `<span class="badge ${safeVariant}">${clean}</span>`;
 }
@@ -181,13 +210,13 @@ function formatCurrency(amount, currency = "INR") {
   const curr = (currency || "INR").toUpperCase();
   const locale = curr === "INR" ? "en-IN" : "en-US";
   const symbolMap = {
-    INR: "₹",
+    INR: "â‚¹",
     USD: "$",
-    EUR: "€",
-    GBP: "£",
+    EUR: "â‚¬",
+    GBP: "Â£",
     CAD: "CA$",
     AUD: "A$",
-    JPY: "¥",
+    JPY: "Â¥",
   };
   const symbol = symbolMap[curr] || (curr + " ");
   try {
@@ -288,7 +317,7 @@ function renderRows() {
       let statusBadge = getLifecycleBadge(sub.status, sub.lifecycle_status);
 
       // Eligibility badge
-      let eligBadge = `<span class="badge">—</span>`;
+      let eligBadge = `<span class="badge">â€”</span>`;
       if (decision) {
         if (decision.eligibility === "candidate") eligBadge = badge("Candidate", "candidate");
         else if (decision.eligibility === "needs_review") eligBadge = badge("Needs Review", "warning");
@@ -309,7 +338,7 @@ function renderRows() {
 
       const costStr = typeof sub.monthly_cost === "number" ? `${formatCurrency(sub.monthly_cost, sub.currency)}/mo` : "Unknown";
       const lastUsed = formatDate(sub.last_used_at);
-      let renewalHtml = escapeHtml(sub.renewal_date || "—");
+      let renewalHtml = escapeHtml(sub.renewal_date || "â€”");
       if (sub.trial_end_date) {
         renewalHtml += `<div style="font-size: 10px; color: var(--text-muted);">Trial ends: ${escapeHtml(sub.trial_end_date)}</div>`;
       }
@@ -427,7 +456,7 @@ function openDrawer(target) {
 
   // 1. Overview metadata
   const currencySymbol = sub.currency === "USD" ? "$" : (escapeHtml(sub.currency) || "$");
-  const cost = typeof sub.monthly_cost === "number" ? formatCurrency(sub.monthly_cost, sub.currency) : "—";
+  const cost = typeof sub.monthly_cost === "number" ? formatCurrency(sub.monthly_cost, sub.currency) : "â€”";
   const billingCycle = escapeHtml(sub.billing_cycle || "monthly");
   const renewal = escapeHtml(sub.renewal_date || "No renewal date");
   const lastUsed = escapeHtml(formatDate(sub.last_used_at));
@@ -447,7 +476,7 @@ function openDrawer(target) {
       <div>
         <span class="sub-meta">CANCELLATION POLICY</span>
         <div style="margin-top: 4px; font-size: 13px;">
-          ${safeTermsUrl ? `<a href="${safeTermsUrl}" target="_blank" rel="noopener noreferrer" style="color: #60a5fa; text-decoration: underline;">View Terms ↗</a>` : `<span style="color: var(--text-muted);">None specified</span>`}
+          ${safeTermsUrl ? `<a href="${safeTermsUrl}" target="_blank" rel="noopener noreferrer" style="color: #60a5fa; text-decoration: underline;">View Terms â†—</a>` : `<span style="color: var(--text-muted);">None specified</span>`}
         </div>
       </div>
     </div>
@@ -460,7 +489,7 @@ function openDrawer(target) {
       <p style="margin-top: 4px; font-size: 13px; color: var(--text-secondary);">${escapeHtml(decision.reason || "Evaluated")}</p>
       <div style="margin-top: 8px; font-size: 12px; color: var(--text-muted);">
         Uncertainty Metric: <strong>${Math.round((decision.uncertainty || 0) * 100)}%</strong>
-        ${(decision.uncertainty || 0) > 0.3 ? badge("High Uncertainty — Review Required", "warning") : badge("High Confidence", "success")}
+        ${(decision.uncertainty || 0) > 0.3 ? badge("High Uncertainty â€” Review Required", "warning") : badge("High Confidence", "success")}
       </div>
     </div>`;
 
@@ -529,7 +558,7 @@ function openDrawer(target) {
             return `<li class="evidence-card">
               <div class="evidence-meta">
                 <span class="badge info">${safeType}</span>
-                <span>Confidence: ${Math.round((e.confidence || 0) * 100)}% · ${escapeHtml(formatDate(e.captured_at))}</span>
+                <span>Confidence: ${Math.round((e.confidence || 0) * 100)}% Â· ${escapeHtml(formatDate(e.captured_at))}</span>
               </div>
               <p class="evidence-text">"${safeExcerpt}"</p>
               <div class="evidence-source">${safeSource}</div>
@@ -550,7 +579,7 @@ function openDrawer(target) {
         <div>Action ID: <code class="sub-id-code">${safeActionId}</code></div>
         <div style="margin-top: 4px;">Action Execution: ${badge(action.status, action.status === "succeeded" ? "success" : "danger")}</div>
         <div style="margin-top: 4px;">Independent Verification: ${verif ? badge(verif.status, verif.status === "verified" ? "success" : "danger") : badge("Pending Independent Evidence", "warning")}</div>
-        ${verif ? `<div style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">Observed State: <strong>${safeObserved}</strong> — ${safeDetails}</div>` : ""}
+        ${verif ? `<div style="margin-top: 6px; font-size: 12px; color: var(--text-muted);">Observed State: <strong>${safeObserved}</strong> â€” ${safeDetails}</div>` : ""}
       </div>
       ${action.status === "succeeded" && (!verif || verif.status !== "verified") ? `
         <div style="margin-top: 14px;">
@@ -597,7 +626,7 @@ function openDrawer(target) {
         MANUAL CANCELLATION GUIDANCE (RESTRICTED PROVIDER)
       </div>
       <p style="font-size: 12px; margin-top: 4px;">${instructions}</p>
-      ${safePortalUrl ? `<div style="margin-top: 8px;"><a href="${safePortalUrl}" target="_blank" rel="noopener noreferrer" class="button secondary small" style="display: inline-flex; align-items: center; gap: 6px;">Open Provider Portal ↗</a></div>` : ""}
+      ${safePortalUrl ? `<div style="margin-top: 8px;"><a href="${safePortalUrl}" target="_blank" rel="noopener noreferrer" class="button secondary small" style="display: inline-flex; align-items: center; gap: 6px;">Open Provider Portal â†—</a></div>` : ""}
     </div>`;
   }
 
@@ -873,7 +902,7 @@ async function loadAuditTab() {
           <span class="event-type">${ev.event_type}</span>
           <span>${formatDate(ev.event_at)}</span>
         </div>
-        <div>Entity ID: <code>${ev.entity_id || "—"}</code></div>
+        <div>Entity ID: <code>${ev.entity_id || "â€”"}</code></div>
       </div>`;
     }).join("");
   } catch (err) {
@@ -1309,7 +1338,7 @@ async function loadCandidates() {
         const costStr = typeof cost === "number" ? formatCurrency(cost, c.currency || "INR") : `<span style="color: var(--text-muted);">Unknown</span>`;
         const cycleStr = escapeHtml(c.billing_interval || c.extracted_interval || "Unknown");
 
-        let renewalHtml = escapeHtml(c.detected_renewal_date || c.extracted_renewal_date || "—");
+        let renewalHtml = escapeHtml(c.detected_renewal_date || c.extracted_renewal_date || "â€”");
         if (c.trial_end_date) {
           renewalHtml += `<div style="font-size: 10px; color: var(--text-muted);">Trial ends: ${escapeHtml(c.trial_end_date)}</div>`;
         }
@@ -1319,7 +1348,7 @@ async function loadCandidates() {
           renewalHtml += ` <span class="badge warning" style="font-size: 10px; margin-top: 2px;" title="Date is in the past or subscription is inactive">Past / Inactive</span>`;
         }
 
-        const emailDateStr = c.source_date ? formatDate(c.source_date) : "—";
+        const emailDateStr = c.source_date ? formatDate(c.source_date) : "â€”";
         const confPct = Math.round((c.confidence || 0) * 100);
         const confBadge = confPct >= 70 ? badge(`${confPct}%`, "success") : badge(`${confPct}%`, "warning");
         const cancelSignal = c.cancellation_signal || c.cancellation_signal_detected;
@@ -1726,11 +1755,96 @@ $("status-filter")?.addEventListener("change", () => {
 $("eligibility-filter")?.addEventListener("change", renderRows);
 $("source-filter")?.addEventListener("change", renderRows);
 
-// Initial deterministic boot: user switcher, close drawer and load subscriptions
+// -----------------------------------------------------------------------------
+// Authentication Session & User Profile Lifecycle
+// -----------------------------------------------------------------------------
+
+function renderUserProfile(user) {
+  const nameEl = $("user-name-display");
+  const emailEl = $("user-email-display");
+  const avatarEl = $("user-avatar-badge");
+  const selectorEl = $("user-selector");
+
+  const displayName = user.name || user.email || user.user_id;
+  if (nameEl) nameEl.textContent = displayName;
+  if (emailEl) emailEl.textContent = user.email || "";
+
+  if (avatarEl) {
+    if (user.picture) {
+      avatarEl.innerHTML = `<img src="${escapeHtml(user.picture)}" alt="${escapeHtml(displayName)}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+    } else {
+      const initial = (displayName.charAt(0) || "U").toUpperCase();
+      avatarEl.textContent = initial;
+    }
+  }
+
+  if (selectorEl && user.user_id) {
+    selectorEl.value = user.user_id;
+  }
+}
+
+function extractSessionTokenFromHash() {
+  const hash = window.location.hash;
+  if (hash.includes("session_token=")) {
+    const hashParams = new URLSearchParams(hash.substring(1));
+    const tokenFromHash = hashParams.get("session_token");
+    if (tokenFromHash) {
+      setSessionToken(tokenFromHash);
+      const uid = hashParams.get("user_id");
+      if (uid) setCurrentUserId(uid);
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+  }
+}
+
+async function initAuthSession() {
+  // Allow developer test bypass if specified
+  if (window.location.search.includes("bypass_auth=1")) {
+    renderUserProfile({ user_id: getCurrentUserId(), name: "Test User", email: "user@example.com" });
+    return true;
+  }
+
+  const token = getSessionToken();
+  if (!token) {
+    redirectToLogin();
+    return false;
+  }
+
+  try {
+    const user = await api("/api/auth/me");
+    if (user && user.user_id) {
+      state.currentUser = user;
+      setCurrentUserId(user.user_id);
+      renderUserProfile(user);
+      return true;
+    } else {
+      redirectToLogin("Invalid user session.");
+      return false;
+    }
+  } catch (err) {
+    console.warn("Auth session check failed:", err);
+    redirectToLogin("Session expired or invalid.");
+    return false;
+  }
+}
+
+$("logout-btn")?.addEventListener("click", async () => {
+  try {
+    await api("/api/auth/logout", { method: "POST" });
+  } catch (e) {
+    console.warn("Logout error:", e);
+  }
+  setSessionToken("");
+  window.location.href = "./login.html";
+});
+
+// Initial deterministic boot: extract token, switchers, close drawer, load subscriptions, and init session
+extractSessionTokenFromHash();
 initBackendSwitcher();
 initUserSwitcher();
 closeDrawer();
 loadSubscriptions();
+initAuthSession();
 
 // Check for OAuth callback redirects
 if (window.location.hash.startsWith("#email-connected")) {
@@ -1744,4 +1858,3 @@ if (window.location.hash.startsWith("#email-connected")) {
   showNotice(`Google OAuth error: ${errorMsg}`, "error");
   history.replaceState(null, "", window.location.pathname);
 }
-

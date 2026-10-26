@@ -59,6 +59,10 @@ def get_db_session() -> Iterator[sqlite3.Connection]:
         connection.close()
 
 
+db_session = get_db_session
+
+
+
 def audit_and_reconcile_database(
     connection: Optional[sqlite3.Connection] = None,
     user_id: str = "user_default",
@@ -457,6 +461,27 @@ def initialize_schema(connection: Optional[sqlite3.Connection] = None) -> None:
             ON subscription_candidates(user_id, review_status);
         CREATE INDEX IF NOT EXISTS idx_email_accounts_user
             ON email_accounts(user_id);
+        CREATE TABLE IF NOT EXISTS users (
+            user_id TEXT PRIMARY KEY,
+            google_sub TEXT UNIQUE,
+            email TEXT UNIQUE NOT NULL,
+            name TEXT,
+            picture TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_login_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS user_sessions (
+            session_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            session_token_hash TEXT UNIQUE NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            expires_at TEXT NOT NULL,
+            is_revoked INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub);
+        CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+        CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON user_sessions(session_token_hash);
+        CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON user_sessions(user_id);
         """
     )
     # Lightweight schema migration for pre-existing subscriptions table
@@ -1276,6 +1301,9 @@ def list_email_accounts(user_id: str = "user_default") -> List[EmailAccountStatu
         return [_row_to_email_account_status(r, live_configured, connection) for r in rows]
 
 
+get_email_accounts = list_email_accounts
+
+
 def get_email_tokens(
     user_id: str = "user_default",
     account_id: Optional[str] = None,
@@ -1714,6 +1742,10 @@ def delete_user_data(user_id: str) -> Dict[str, Any]:
         connection.execute("DELETE FROM subscriptions WHERE user_id = ?", (user_id,))
         # 7. Disconnect email accounts & delete tokens
         connection.execute("DELETE FROM email_accounts WHERE user_id = ?", (user_id,))
+        # 8. Delete user sessions
+        connection.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
+        # 9. Delete user record
+        connection.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
 
         return {
             "deleted": True,
@@ -1932,6 +1964,204 @@ def repair_mixed_data(
             "repairable_subscriptions": repairable_subscriptions,
             "ambiguous_subscriptions": ambiguous_subscriptions,
         }
+    finally:
+        if owns_conn:
+            sess.__exit__(None, None, None)
+
+
+# ==============================================================================
+# User Identity & Session Persistence
+# ==============================================================================
+
+def save_user(
+    user_id: str,
+    email: str,
+    google_sub: Optional[str] = None,
+    name: Optional[str] = None,
+    picture: Optional[str] = None,
+    connection: Optional[sqlite3.Connection] = None,
+) -> None:
+    """Insert or update a persistent application user record."""
+    owns_conn = connection is None
+    if owns_conn:
+        sess = db_session()
+        conn = sess.__enter__()
+    else:
+        conn = connection
+
+    try:
+        conn.execute(
+            """
+            INSERT INTO users (user_id, google_sub, email, name, picture, last_login_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id) DO UPDATE SET
+                google_sub = coalesce(excluded.google_sub, users.google_sub),
+                email = excluded.email,
+                name = coalesce(excluded.name, users.name),
+                picture = coalesce(excluded.picture, users.picture),
+                last_login_at = CURRENT_TIMESTAMP
+            """,
+            (user_id, google_sub, email, name, picture),
+        )
+    finally:
+        if owns_conn:
+            sess.__exit__(None, None, None)
+
+
+def get_user_by_id(user_id: str, connection: Optional[sqlite3.Connection] = None) -> Optional[Dict[str, Any]]:
+    """Retrieve user record by user_id."""
+    owns_conn = connection is None
+    if owns_conn:
+        sess = db_session()
+        conn = sess.__enter__()
+    else:
+        conn = connection
+
+    try:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT user_id, google_sub, email, name, picture, created_at, last_login_at FROM users WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        if owns_conn:
+            sess.__exit__(None, None, None)
+
+
+def get_user_by_google_sub(google_sub: str, connection: Optional[sqlite3.Connection] = None) -> Optional[Dict[str, Any]]:
+    """Retrieve user record by Google subject ID (sub claim)."""
+    owns_conn = connection is None
+    if owns_conn:
+        sess = db_session()
+        conn = sess.__enter__()
+    else:
+        conn = connection
+
+    try:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT user_id, google_sub, email, name, picture, created_at, last_login_at FROM users WHERE google_sub = ?",
+            (google_sub,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        if owns_conn:
+            sess.__exit__(None, None, None)
+
+
+def get_user_by_email(email: str, connection: Optional[sqlite3.Connection] = None) -> Optional[Dict[str, Any]]:
+    """Retrieve user record by verified email address."""
+    owns_conn = connection is None
+    if owns_conn:
+        sess = db_session()
+        conn = sess.__enter__()
+    else:
+        conn = connection
+
+    try:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT user_id, google_sub, email, name, picture, created_at, last_login_at FROM users WHERE lower(email) = lower(?)",
+            (email.strip(),),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        if owns_conn:
+            sess.__exit__(None, None, None)
+
+
+def save_user_session(
+    session_id: str,
+    user_id: str,
+    session_token_hash: str,
+    expires_at: str,
+    connection: Optional[sqlite3.Connection] = None,
+) -> None:
+    """Store an active user session token hash."""
+    owns_conn = connection is None
+    if owns_conn:
+        sess = db_session()
+        conn = sess.__enter__()
+    else:
+        conn = connection
+
+    try:
+        conn.execute(
+            """
+            INSERT INTO user_sessions (session_id, user_id, session_token_hash, expires_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (session_id, user_id, session_token_hash, expires_at),
+        )
+    finally:
+        if owns_conn:
+            sess.__exit__(None, None, None)
+
+
+def get_user_session_by_token_hash(token_hash: str, connection: Optional[sqlite3.Connection] = None) -> Optional[Dict[str, Any]]:
+    """Retrieve active non-revoked session by SHA-256 token hash."""
+    owns_conn = connection is None
+    if owns_conn:
+        sess = db_session()
+        conn = sess.__enter__()
+    else:
+        conn = connection
+
+    try:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """
+            SELECT s.session_id, s.user_id, s.expires_at, s.is_revoked,
+                   u.email, u.name, u.picture, u.google_sub
+            FROM user_sessions s
+            JOIN users u ON s.user_id = u.user_id
+            WHERE s.session_token_hash = ?
+              AND s.is_revoked = 0
+            """,
+            (token_hash,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        if owns_conn:
+            sess.__exit__(None, None, None)
+
+
+def revoke_user_session(token_hash: str, connection: Optional[sqlite3.Connection] = None) -> bool:
+    """Revoke a specific session by token hash."""
+    owns_conn = connection is None
+    if owns_conn:
+        sess = db_session()
+        conn = sess.__enter__()
+    else:
+        conn = connection
+
+    try:
+        cursor = conn.execute(
+            "UPDATE user_sessions SET is_revoked = 1 WHERE session_token_hash = ?",
+            (token_hash,),
+        )
+        return cursor.rowcount > 0
+    finally:
+        if owns_conn:
+            sess.__exit__(None, None, None)
+
+
+def revoke_all_sessions_for_user(user_id: str, connection: Optional[sqlite3.Connection] = None) -> int:
+    """Revoke all active sessions for a user upon security events or global logout."""
+    owns_conn = connection is None
+    if owns_conn:
+        sess = db_session()
+        conn = sess.__enter__()
+    else:
+        conn = connection
+
+    try:
+        cursor = conn.execute(
+            "UPDATE user_sessions SET is_revoked = 1 WHERE user_id = ? AND is_revoked = 0",
+            (user_id,),
+        )
+        return cursor.rowcount
     finally:
         if owns_conn:
             sess.__exit__(None, None, None)

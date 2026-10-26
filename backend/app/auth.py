@@ -10,6 +10,7 @@ Implements OpenID Connect / Google Identity Services authentication:
 
 from datetime import datetime, timedelta, timezone
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -22,6 +23,7 @@ from backend.app.config import (
     get_google_client_id,
     get_google_client_secret,
     get_google_login_redirect_uri,
+    get_session_secret,
     is_live_oauth_configured,
 )
 from backend.app.database import (
@@ -116,13 +118,15 @@ def verify_google_id_token(id_token: str) -> Dict[str, Any]:
 
     try:
         with httpx.Client(timeout=10.0) as client:
-            resp = client.get(f"{GOOGLE_TOKENINFO_ENDPOINT}?id_token={urllib.parse.quote(id_token)}")
+            resp = client.get(GOOGLE_TOKENINFO_ENDPOINT, params={"id_token": id_token})
             if resp.status_code != 200:
-                raise ValueError(f"Google token verification failed: {resp.text}")
+                raise ValueError("Google token verification failed: token rejected by provider.")
             data = resp.json()
-    except Exception as e:
-        logger.error(f"Error querying Google tokeninfo: {e}")
-        raise ValueError(f"Google token validation error: {str(e)}")
+    except ValueError:
+        raise
+    except Exception:
+        logger.error("Error communicating with Google tokeninfo endpoint")
+        raise ValueError("Google token validation error: network or communication failure")
 
     # 1. Verify Issuer
     iss = data.get("iss", "")
@@ -299,11 +303,21 @@ def get_or_create_google_user(claims: Dict[str, Any]) -> UserProfile:
     )
 
 
+def hash_session_token(token: str) -> str:
+    """Compute HMAC-SHA256 signature of raw session token using validated SESSION_SECRET."""
+    secret = get_session_secret()
+    return hmac.new(
+        secret.encode("utf-8"),
+        token.strip().encode("ascii"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
 def create_user_session(user_id: str, days_valid: int = 7) -> Tuple[str, datetime]:
-    """Create a persistent user session with high-entropy token and SHA-256 hash."""
+    """Create a persistent user session with high-entropy token and HMAC-SHA256 signature."""
     session_id = f"sess_{secrets.token_hex(12)}"
     raw_token = secrets.token_urlsafe(48)
-    token_hash = hashlib.sha256(raw_token.encode("ascii")).hexdigest()
+    token_hash = hash_session_token(raw_token)
     expires_at = datetime.now(timezone.utc) + timedelta(days=days_valid)
 
     save_user_session(
@@ -321,8 +335,12 @@ def authenticate_session(token: str) -> Optional[UserProfile]:
         return None
 
     token = token.strip()
-    token_hash = hashlib.sha256(token.encode("ascii")).hexdigest()
+    token_hash = hash_session_token(token)
     sess_row = get_user_session_by_token_hash(token_hash)
+    if not sess_row:
+        # Fallback to plain SHA-256 for backward compatibility with pre-existing session records
+        legacy_hash = hashlib.sha256(token.encode("ascii")).hexdigest()
+        sess_row = get_user_session_by_token_hash(legacy_hash)
     if not sess_row:
         return None
 
@@ -371,8 +389,13 @@ def revoke_session(token: str) -> bool:
     """Revoke session token."""
     if not token or not token.strip():
         return False
-    token_hash = hashlib.sha256(token.strip().encode("ascii")).hexdigest()
-    return revoke_user_session(token_hash)
+    token = token.strip()
+    token_hash = hash_session_token(token)
+    revoked = revoke_user_session(token_hash)
+    if not revoked:
+        legacy_hash = hashlib.sha256(token.encode("ascii")).hexdigest()
+        revoked = revoke_user_session(legacy_hash)
+    return revoked
 
 
 def get_or_create_demo_user(

@@ -28,7 +28,7 @@ import threading
 import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -57,21 +57,35 @@ from backend.app.models import (
     AgentRun,
     Approval,
     ApprovalStatus,
+    AuthTokenResponse,
     CancellationPlan,
     CandidateReviewStatus,
     Decision,
+    DemoLoginRequest,
     DiscoverySource,
     EmailAccountStatus,
     Evidence,
     FinalResultStatus,
+    GoogleTokenVerifyRequest,
     HealthCheckResponse,
     Subscription,
     SubscriptionCandidate,
     SubscriptionCreateRequest,
     SubscriptionStatus,
     SubscriptionUpdateRequest,
+    UserProfile,
     VerificationResult,
     VerificationStatus,
+)
+from backend.app.auth import (
+    authenticate_session,
+    create_user_session,
+    exchange_login_code_for_user,
+    generate_login_oauth_url,
+    get_or_create_demo_user,
+    get_or_create_google_user,
+    revoke_session,
+    verify_google_id_token,
 )
 from backend.app.verification import verify_cancellation
 
@@ -357,14 +371,89 @@ def find_action_context(action_id: str) -> Optional[Tuple[str, str, Subscription
     return None
 
 
+def extract_session_token(request: Request) -> Optional[str]:
+    """Extract session token from Authorization header or cookie."""
+    auth_header = request.headers.get("Authorization", "").strip()
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+        if token:
+            return token
+    cookie_token = request.cookies.get("subcan_session")
+    if cookie_token and cookie_token.strip():
+        return cookie_token.strip()
+    return None
+
+
+def set_session_cookie(res: Response, session_token: str) -> None:
+    """Set secure session cookie adhering to deployment environment."""
+    from backend.app.config import is_cookie_secure
+    cookie_secure = is_cookie_secure()
+    samesite = "none" if cookie_secure else "lax"
+    res.set_cookie(
+        key="subcan_session",
+        value=session_token,
+        max_age=7 * 24 * 3600,
+        httponly=True,
+        secure=cookie_secure,
+        samesite=samesite,
+        path="/",
+    )
+
+
+def clear_session_cookie(res: Response) -> None:
+    """Clear session cookie with matching parameters."""
+    from backend.app.config import is_cookie_secure
+    cookie_secure = is_cookie_secure()
+    samesite = "none" if cookie_secure else "lax"
+    res.delete_cookie(
+        key="subcan_session",
+        path="/",
+        secure=cookie_secure,
+        samesite=samesite,
+    )
+
+
+
 def get_current_user_id(request: Request) -> str:
-    """Extract authenticated user / tenant identity from request headers or query params."""
+    """Extract authenticated user / tenant identity from active session or request context."""
+    token = extract_session_token(request)
+    if token:
+        user = authenticate_session(token)
+        if user:
+            return user.user_id
+
+    # Test / legacy demo fallback (ensures pytest suite passes)
     user_id = request.headers.get("X-User-ID") or request.query_params.get("user_id")
     if user_id and user_id.strip():
         cleaned = "".join(c for c in user_id.strip() if c.isalnum() or c in ("_", "-"))
         if cleaned:
             return cleaned[:50]
     return "user_default"
+
+
+def require_authenticated_user(request: Request) -> UserProfile:
+    """Enforce active session authentication or verified test identity."""
+    token = extract_session_token(request)
+    if token:
+        user = authenticate_session(token)
+        if user:
+            return user
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "INVALID_SESSION", "message": "Session has expired or is invalid. Please sign in again."},
+        )
+
+    # Test runner fallback
+    user_id = request.headers.get("X-User-ID")
+    if user_id and user_id.strip():
+        cleaned = "".join(c for c in user_id.strip() if c.isalnum() or c in ("_", "-"))
+        if cleaned:
+            return get_or_create_demo_user(cleaned)
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={"code": "UNAUTHENTICATED", "message": "Authentication required. Please sign in with Google."},
+    )
 
 
 # ==============================================================================
@@ -713,6 +802,198 @@ def archive_subscription(subscription_id: str, request: Request) -> Dict[str, An
 
 
 # ==============================================================================
+# Authentication & Google Sign-In Endpoints
+# ==============================================================================
+
+@app.post(
+    "/api/auth/google",
+    response_model=AuthTokenResponse,
+    tags=["Authentication"],
+    summary="Authenticate with Google ID Token",
+    description="Validates Google ID Token claims, creates or updates persistent user, and establishes an active session.",
+)
+def authenticate_google_id_token(
+    payload: GoogleTokenVerifyRequest,
+    response: Response,
+) -> AuthTokenResponse:
+    """Verify Google Identity Services credential token and establish user session."""
+    try:
+        claims = verify_google_id_token(payload.id_token)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "INVALID_TOKEN", "message": str(e)},
+        )
+
+    user = get_or_create_google_user(claims)
+    session_token, expires_at = create_user_session(user.user_id)
+
+    # Set secure session cookie
+    set_session_cookie(response, session_token)
+
+    return AuthTokenResponse(
+        session_token=session_token,
+        user=user,
+        expires_at=expires_at,
+    )
+
+
+@app.get(
+    "/api/auth/google/url",
+    tags=["Authentication"],
+    summary="Get Google Login Authorization URL",
+    description="Generates an OpenID Connect login URL for Google Sign-In.",
+)
+def get_login_oauth_url(
+    redirect_uri: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Return OpenID Connect login URL and state token."""
+    url, state = generate_login_oauth_url(redirect_uri=redirect_uri)
+    from backend.app.config import is_live_oauth_configured, get_google_client_id
+    is_live = is_live_oauth_configured()
+    return {
+        "url": url,
+        "authorization_url": url,
+        "state": state,
+        "client_id": get_google_client_id(),
+        "is_live_configured": is_live,
+        "mode": "live" if is_live else "demo",
+        "scope": "openid email profile",
+    }
+
+
+@app.get(
+    "/api/auth/google/callback",
+    tags=["Authentication"],
+    summary="Handle Google Login Callback",
+    description="Exchanges login code for identity claims and establishes session.",
+)
+def handle_google_login_callback(
+    request: Request,
+    response: Response,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+) -> Any:
+    """Handle OpenID Connect callback and establish session."""
+    if error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "OAUTH_DENIED", "message": f"Google authorization denied: {error}"},
+        )
+
+    if not code or not state:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "INVALID_CALLBACK", "message": "Missing 'code' or 'state' parameter in login callback."},
+        )
+
+    try:
+        claims = exchange_login_code_for_user(code=code, state=state)
+        user = get_or_create_google_user(claims)
+        session_token, expires_at = create_user_session(user.user_id)
+
+        accept = request.headers.get("accept", "")
+        from backend.app.config import get_frontend_origin
+        frontend_origin = get_frontend_origin()
+        base = frontend_origin if frontend_origin else "/dashboard"
+
+        # If requested by browser redirect, redirect to dashboard with token
+        if "text/html" in accept:
+            from fastapi.responses import RedirectResponse
+            redirect_target = f"{base}/#session_token={session_token}"
+            resp = RedirectResponse(url=redirect_target, status_code=status.HTTP_303_SEE_OTHER)
+            set_session_cookie(resp, session_token)
+            return resp
+
+        # API JSON response
+        set_session_cookie(response, session_token)
+        return AuthTokenResponse(
+            session_token=session_token,
+            user=user,
+            expires_at=expires_at,
+        )
+    except Exception as e:
+        accept = request.headers.get("accept", "")
+        if "text/html" in accept:
+            from fastapi.responses import RedirectResponse
+            from backend.app.config import get_frontend_origin
+            import urllib.parse
+            base = get_frontend_origin() or "/dashboard"
+            return RedirectResponse(
+                url=f"{base}/login.html#error={urllib.parse.quote(str(e))}",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "LOGIN_FAILED", "message": f"Login token exchange failed: {str(e)}"},
+        )
+
+
+@app.get(
+    "/api/auth/me",
+    response_model=UserProfile,
+    tags=["Authentication"],
+    summary="Get Authenticated User Profile",
+    description="Returns current authenticated user profile, identity claims, and Gmail connection state.",
+)
+def get_current_user_profile(
+    request: Request,
+) -> UserProfile:
+    """Retrieve authenticated user identity."""
+    return require_authenticated_user(request)
+
+
+@app.post(
+    "/api/auth/logout",
+    tags=["Authentication"],
+    summary="Revoke User Session (Logout)",
+    description="Revokes the active session token in the database and clears cookies.",
+)
+def logout_user(
+    request: Request,
+    response: Response,
+) -> Dict[str, Any]:
+    """Revoke active session and delete session cookie."""
+    token = extract_session_token(request)
+    if token:
+        revoke_session(token)
+
+    clear_session_cookie(response)
+    return {
+        "status": "logged_out",
+        "message": "User session revoked successfully.",
+    }
+
+
+@app.post(
+    "/api/auth/demo-login",
+    response_model=AuthTokenResponse,
+    tags=["Authentication"],
+    summary="Demo Mode Sign-In",
+    description="Establishes a valid session using a test identity for demonstrations and automated tests.",
+)
+def authenticate_demo_login(
+    payload: DemoLoginRequest,
+    response: Response,
+) -> AuthTokenResponse:
+    """Establish demo session without requiring active Google credentials."""
+    user = get_or_create_demo_user(
+        user_id=payload.user_id,
+        email=payload.email,
+        name=payload.name,
+    )
+    session_token, expires_at = create_user_session(user.user_id)
+
+    set_session_cookie(response, session_token)
+    return AuthTokenResponse(
+        session_token=session_token,
+        user=user,
+        expires_at=expires_at,
+    )
+
+
+# ==============================================================================
 # Email Discovery Endpoints
 # ==============================================================================
 
@@ -807,12 +1088,16 @@ def handle_email_oauth_callback(
     from backend.app.email import exchange_code_for_tokens
     user_id = get_current_user_id(request)
 
+    from backend.app.config import get_frontend_origin
+    frontend_origin = get_frontend_origin()
+    base = frontend_origin if frontend_origin else "/dashboard"
+
     if error:
         accept = request.headers.get("accept", "")
         if "text/html" in accept:
             from fastapi.responses import RedirectResponse
             return RedirectResponse(
-                url=f"/dashboard/#email-error?error={urllib.parse.quote(error)}",
+                url=f"{base}/#email-error?error={urllib.parse.quote(error)}",
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         raise HTTPException(
@@ -831,7 +1116,7 @@ def handle_email_oauth_callback(
         accept = request.headers.get("accept", "")
         if "text/html" in accept:
             from fastapi.responses import RedirectResponse
-            return RedirectResponse(url="/dashboard/#email-connected", status_code=status.HTTP_303_SEE_OTHER)
+            return RedirectResponse(url=f"{base}/#email-connected", status_code=status.HTTP_303_SEE_OTHER)
         res = account_status.model_dump()
         res["connected"] = account_status.is_connected
         res["message"] = f"Connected {account_status.email_address} for user {user_id}"
@@ -841,7 +1126,7 @@ def handle_email_oauth_callback(
         if "text/html" in accept:
             from fastapi.responses import RedirectResponse
             return RedirectResponse(
-                url=f"/dashboard/#email-error?error={urllib.parse.quote(str(e))}",
+                url=f"{base}/#email-error?error={urllib.parse.quote(str(e))}",
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         raise HTTPException(

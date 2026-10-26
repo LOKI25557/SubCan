@@ -720,3 +720,48 @@ class HealthCheckResponse(BaseModel):
     version: str = Field(..., description="Application semantic version.")
     phase: str = Field(default="Phase 0: Foundation & Team Independence", description="Project development phase.")
     timestamp: datetime = Field(..., description="Timestamp of health check response.")
+
+
+# ==============================================================================
+# Authentication & User Identity Models
+# ==============================================================================
+
+class UserProfile(BaseModel):
+    """Authenticated user profile model."""
+    model_config = ConfigDict(extra="ignore")
+
+    user_id: str = Field(..., description="Stable internal application user identifier.")
+    email: str = Field(..., description="Verified primary email address.")
+    name: Optional[str] = Field(default=None, description="Display name from identity claims.")
+    picture: Optional[str] = Field(default=None, description="Profile avatar picture URL.")
+    google_sub: Optional[str] = Field(default=None, description="Stable Google OpenID Connect subject ID.")
+    created_at: Optional[datetime] = Field(default=None, description="Account creation timestamp.")
+    last_login_at: Optional[datetime] = Field(default=None, description="Most recent login timestamp.")
+    gmail_connected: bool = Field(default=False, description="Whether user has connected Gmail for discovery.")
+    gmail_account_email: Optional[str] = Field(default=None, description="Connected Gmail address if active.")
+
+
+class AuthTokenResponse(BaseModel):
+    """Response returned upon successful authentication."""
+    model_config = ConfigDict(extra="ignore")
+
+    session_token: str = Field(..., description="Bearer session token for API authorization.")
+    user: UserProfile = Field(..., description="Authenticated user profile.")
+    expires_at: datetime = Field(..., description="Session expiry timestamp.")
+    token_type: str = Field(default="Bearer", description="HTTP authorization scheme.")
+
+
+class GoogleTokenVerifyRequest(BaseModel):
+    """Payload for verifying a Google Identity Services ID token."""
+    model_config = ConfigDict(extra="forbid")
+
+    id_token: str = Field(..., description="Google ID Token JWT to verify.")
+
+
+class DemoLoginRequest(BaseModel):
+    """Payload for signing in with a demo identity in testing/demo mode."""
+    model_config = ConfigDict(extra="ignore")
+
+    user_id: str = Field(default="user_alice", description="Demo user ID.")
+    email: Optional[str] = Field(default=None, description="Optional demo email address.")
+    name: Optional[str] = Field(default=None, description="Optional demo full name.")
