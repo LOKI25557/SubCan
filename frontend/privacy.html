@@ -1,0 +1,771 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Privacy Policy for SubCan — AI-Powered Subscription Cancellation Agent. Comprehensive details on Google OAuth, read-only Gmail API data processing, storage, retention, security, and user rights.">
+  <title>SubCan — Privacy Policy | AI-Powered Subscription Cancellation Agent</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css?v=2.2">
+</head>
+<body class="privacy-body">
+  <!-- Ambient background glow elements -->
+  <div class="auth-glow auth-glow-1" style="top: -100px; left: -100px;" aria-hidden="true"></div>
+  <div class="auth-glow auth-glow-2" style="top: 250px; right: -150px;" aria-hidden="true"></div>
+
+  <!-- Sticky Top Header Navigation -->
+  <header class="privacy-header" role="banner">
+    <div class="privacy-header-inner">
+      <a href="./index.html" class="brand" aria-label="SubCan Home">
+        <div class="logo-mark" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-title">SubCan</span>
+          <span class="brand-badge">PRIVACY POLICY</span>
+        </div>
+      </a>
+
+      <div class="privacy-header-actions">
+        <button type="button" class="button secondary small icon-btn" onclick="window.print()" title="Print or save this policy as PDF" aria-label="Print policy">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 6 2 18 2 18 9"/>
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+            <rect x="6" y="14" width="12" height="8"/>
+          </svg>
+          <span>Print / PDF</span>
+        </button>
+        <a href="./login.html" class="button secondary small" id="header-auth-link">Sign In</a>
+        <a href="./index.html" class="button primary small glow" id="header-dashboard-link">Open Dashboard</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Document Container -->
+  <main class="privacy-main" role="main">
+    <!-- Hero / Header Section -->
+    <section class="privacy-hero">
+      <div class="privacy-hero-badge">LEGAL SPECIFICATION &amp; DATA GOVERNANCE</div>
+      <h1 class="privacy-hero-title">SubCan Privacy Policy</h1>
+      <p class="privacy-hero-desc">
+        Comprehensive transparency regarding Google OAuth authentication, read-only Gmail discovery, 
+        in-memory subscription extraction, data retention, security controls, and user rights.
+      </p>
+
+      <div class="privacy-meta-bar">
+        <div class="meta-item">
+          <span class="meta-label">EFFECTIVE DATE</span>
+          <strong class="meta-value">January 1, 2026</strong>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">LAST UPDATED</span>
+          <strong class="meta-value">October 26, 2026</strong>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">APPLICATION</span>
+          <strong class="meta-value">SubCan (Web Client)</strong>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">VERSION</span>
+          <strong class="meta-value">1.2 (Production Release)</strong>
+        </div>
+      </div>
+
+      <!-- Owner Verification Action Alert Box -->
+      <div class="verification-notice-banner" role="alert">
+        <div class="notice-icon-circle">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+        </div>
+        <div class="notice-content">
+          <strong>Notice for Project Owner &amp; Evaluators</strong>
+          <p>
+            This privacy policy accurately reflects the technical data flows, API scopes, and database persistence implemented 
+            in the SubCan codebase. Any operational details requiring formal organization registration (such as registered legal 
+            entity name, jurisdiction, or dedicated privacy inbox) are clearly marked with 
+            <code>[ACTION REQUIRED: OWNER VERIFICATION]</code>. The project owner must verify these details prior to formal public launch.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Two-Column Layout: Sticky Sidebar TOC + Content Area -->
+    <div class="privacy-layout">
+      <!-- Sticky Table of Contents Sidebar -->
+      <aside class="privacy-sidebar" aria-label="Table of contents">
+        <div class="sidebar-sticky-card">
+          <h2 class="sidebar-heading">Contents</h2>
+          <nav class="sidebar-nav">
+            <a href="#section-1" class="toc-link">1. Overview &amp; Service Architecture</a>
+            <a href="#section-2" class="toc-link">2. Information We Collect</a>
+            <a href="#section-3" class="toc-link">3. Google OAuth &amp; API Scopes</a>
+            <a href="#section-4" class="toc-link">4. Email Processing &amp; Detection</a>
+            <a href="#section-5" class="toc-link">5. Data Storage, Retention &amp; Minimization</a>
+            <a href="#section-6" class="toc-link">6. Third-Party Processors &amp; Sharing</a>
+            <a href="#section-7" class="toc-link">7. Google API Limited Use Compliance</a>
+            <a href="#section-8" class="toc-link">8. Security &amp; Tenant Isolation</a>
+            <a href="#section-9" class="toc-link">9. User Privacy Rights (GDPR / CCPA)</a>
+            <a href="#section-10" class="toc-link">10. Mailbox Disconnection &amp; Deletion</a>
+            <a href="#section-11" class="toc-link">11. Children's Privacy</a>
+            <a href="#section-12" class="toc-link">12. Changes &amp; Policy Updates</a>
+            <a href="#section-13" class="toc-link">13. Contact Information</a>
+          </nav>
+          <div class="sidebar-footer">
+            <span class="status-indicator-dot"></span>
+            <span>Policy Status: Active</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main Legal Content Body -->
+      <div class="privacy-content">
+
+        <!-- Section 1: Overview & Service Architecture -->
+        <section id="section-1" class="legal-card">
+          <div class="section-number">01</div>
+          <h2>Overview &amp; Service Architecture</h2>
+          <p>
+            Welcome to <strong>SubCan</strong> ("we", "us", "our", or "the Service"), accessible at 
+            <a href="https://subcan-frontend.onrender.com" target="_blank" rel="noopener">https://subcan-frontend.onrender.com</a> 
+            (frontend) with backend API services hosted at 
+            <a href="https://subcan.onrender.com" target="_blank" rel="noopener">https://subcan.onrender.com</a>.
+          </p>
+          <p>
+            SubCan is an AI-powered subscription cancellation and financial workflow management platform designed to help users 
+            detect recurring billing commitments, review unused subscriptions, evaluate inactivity thresholds, and coordinate 
+            safe, human-approved cancellations with independent verification of provider renewal states.
+          </p>
+
+          <div class="highlight-box">
+            <h4>Core Safety Philosophy: Detect &bull; Decide &bull; Approve &bull; Cancel &bull; Verify</h4>
+            <p>
+              SubCan operates on an explicit <strong>zero-unauthorized-action</strong> invariant. 
+              SubCan will <em>never</em> automatically cancel a subscription without prior explicit, per-subscription user approval. 
+              Furthermore, an automated action’s runtime success is never assumed to be proof of cancellation; 
+              independent verification against observed renewal records is mandatory before marking any subscription as cancelled.
+            </p>
+          </div>
+        </section>
+
+        <!-- Section 2: Information We Collect -->
+        <section id="section-2" class="legal-card">
+          <div class="section-number">02</div>
+          <h2>Information We Collect</h2>
+          <p>
+            SubCan collects and processes only the information strictly necessary to provide subscription discovery, 
+            account management, and user-authorized cancellation workflows.
+          </p>
+
+          <div class="data-table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="width: 24%;">Category</th>
+                  <th style="width: 38%;">Specific Data Elements Collected</th>
+                  <th style="width: 38%;">Source &amp; Purpose</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Google Identity Data</strong></td>
+                  <td>
+                    Google Subject ID (<code>sub</code>), primary email address, full display name, and avatar picture URL.
+                  </td>
+                  <td>
+                    <strong>Google Sign-In:</strong> Establishes your user account, generates secure server sessions, and guarantees multi-tenant data isolation.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Billing Email Discovery Data</strong></td>
+                  <td>
+                    Subject line, sender address, received timestamp, internal Gmail message ID, detected merchant name, 
+                    billed amount, currency, billing frequency, and a short sanitized receipt text excerpt (<code>email_snippet</code>).
+                  </td>
+                  <td>
+                    <strong>Gmail API (Optional):</strong> Extracted during targeted mailbox synchronizations to identify active recurring billing obligations.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>User-Supplied Subscriptions</strong></td>
+                  <td>
+                    Service name, monthly cost, currency, billing cycle, renewal date, last active usage date, category, and personal notes.
+                  </td>
+                  <td>
+                    <strong>Direct User Input:</strong> Entered via the "Track Subscription Manually" dashboard modal.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Audit &amp; Workflow Logs</strong></td>
+                  <td>
+                    Orchestration run identifiers, cancellation plan version fingerprints, explicit approval/decline timestamps, 
+                    action execution records, and independent renewal verification results.
+                  </td>
+                  <td>
+                    <strong>System Orchestrator:</strong> Maintained in durable persistence to ensure compliance, transparency, and idempotency protection.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Technical &amp; Session Data</strong></td>
+                  <td>
+                    Cryptographically hashed session tokens (SHA-256), IP addresses, browser user agent strings, and HTTP request headers.
+                  </td>
+                  <td>
+                    <strong>Web Infrastructure:</strong> Required for secure cookie authentication, CSRF prevention, and application error telemetry.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="callout-card info">
+            <div class="callout-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+              </svg>
+            </div>
+            <div class="callout-text">
+              <strong>What We DO NOT Collect:</strong>
+              SubCan does <em>not</em> collect or store your Google account password, personal correspondence, non-billing emails, 
+              email attachments, contacts/address books, credit card numbers, CVVs, or full payment card credentials.
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 3: Google OAuth & Gmail API Scopes -->
+        <section id="section-3" class="legal-card">
+          <div class="section-number">03</div>
+          <h2>Google OAuth &amp; API Scopes (Strict Architectural Separation)</h2>
+          <p>
+            SubCan implements a strict, two-tier authorization model that completely isolates user identity authentication 
+            from Gmail mailbox discovery. Signing into SubCan <strong>does not</strong> grant access to your emails.
+          </p>
+
+          <div class="scope-comparison-grid">
+            <div class="scope-card identity">
+              <div class="scope-card-header">
+                <span class="scope-badge identity">Tier 1: Identity Authentication</span>
+                <h3>Google Sign-In (OpenID Connect)</h3>
+              </div>
+              <p class="scope-card-desc">
+                Requested when you sign into SubCan using standard identity scopes (<code>openid email profile</code>). Used solely to identify who you are and isolate your account database tenant.
+              </p>
+              <div class="scope-list">
+                <div class="scope-item">
+                  <code>openid</code>
+                  <span>Enables secure OpenID Connect token verification.</span>
+                </div>
+                <div class="scope-item">
+                  <code>email</code>
+                  <span>Retrieves your verified primary email address.</span>
+                </div>
+                <div class="scope-item">
+                  <code>profile</code>
+                  <span>Retrieves your display name and avatar picture.</span>
+                </div>
+              </div>
+              <div class="scope-status positive">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                Zero access to emails, drafts, or inbox messages.
+              </div>
+            </div>
+
+            <div class="scope-card mailbox">
+              <div class="scope-card-header">
+                <span class="scope-badge mailbox">Tier 2: Mailbox Discovery (Optional)</span>
+                <h3>Gmail API (Read-Only)</h3>
+              </div>
+              <p class="scope-card-desc">
+                Requested only when you explicitly connect a mailbox from your dashboard for subscription discovery.
+              </p>
+              <div class="scope-list">
+                <div class="scope-item">
+                  <code>https://www.googleapis.com/auth/gmail.readonly</code>
+                  <span>Read-only access to search message headers and invoice text.</span>
+                </div>
+              </div>
+              <div class="scope-constraints">
+                <strong>Enforced Scope Limits:</strong>
+                <ul>
+                  <li>Cannot send, compose, or draft emails</li>
+                  <li>Cannot delete, trash, or purge emails</li>
+                  <li>Cannot modify labels, filters, or settings</li>
+                  <li>Can be disconnected and revoked at any time</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 4: Email Processing & Subscription Detection -->
+        <section id="section-4" class="legal-card">
+          <div class="section-number">04</div>
+          <h2>How We Process Billing Emails &amp; Detect Subscriptions</h2>
+          <p>
+            When you initiate a mailbox synchronization, SubCan executes an automated, targeted scan designed around privacy 
+            and data minimization:
+          </p>
+
+          <div class="pipeline-steps">
+            <div class="pipeline-step">
+              <div class="step-num">1</div>
+              <div class="step-body">
+                <h4>Targeted Query Filtering</h4>
+                <p>
+                  SubCan does <em>not</em> read your entire inbox. It constructs a narrow, targeted Gmail API search query filtering 
+                  specifically for billing receipts, invoices, renewal notices, and trusted payment provider domains 
+                  (e.g., Google Play, Apple App Store, Stripe, PayPal, Razorpay). Spam and trash folders are explicitly excluded.
+                </p>
+              </div>
+            </div>
+
+            <div class="pipeline-step">
+              <div class="step-num">2</div>
+              <div class="step-body">
+                <h4>In-Memory Sanitization &amp; Parsing</h4>
+                <p>
+                  Retrieved message payloads are decoded strictly in-memory. All executable HTML, scripts, tracking pixels, 
+                  and external iframe markup are stripped. The parser extracts structured metadata: merchant name, 
+                  plan description, amount, currency, billing cycle, renewal date, and cancellation signals.
+                </p>
+              </div>
+            </div>
+
+            <div class="pipeline-step">
+              <div class="step-num">3</div>
+              <div class="step-body">
+                <h4>Chronological Deduplication &amp; Candidate Generation</h4>
+                <p>
+                  Multiple receipts for the same merchant are consolidated chronologically to avoid duplicate records. 
+                  Extracted data is staged as a <em>Subscription Candidate</em> for your personal review in the dashboard.
+                </p>
+              </div>
+            </div>
+
+            <div class="pipeline-step">
+              <div class="step-num">4</div>
+              <div class="step-body">
+                <h4>Local Processing Guarantee (No External AI APIs)</h4>
+                <p>
+                  All parsing, regex extraction, inactivity rule evaluation, and decision-making logic is executed 
+                  <strong>locally on SubCan’s backend service</strong>. 
+                  Your email bodies, text snippets, or personal identifiers are <strong>never sent to external AI providers</strong> 
+                  (such as OpenAI, Anthropic Claude, or Google Gemini APIs).
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 5: Data Storage, Retention & Minimization -->
+        <section id="section-5" class="legal-card">
+          <div class="section-number">05</div>
+          <h2>Data Storage, Retention &amp; Minimization</h2>
+          <p>
+            To prevent privacy sprawl, SubCan enforces strict distinctions between persistent metadata and discarded transient data:
+          </p>
+
+          <div class="storage-comparison-grid">
+            <div class="storage-box stored">
+              <div class="box-header">
+                <span class="icon-tag stored">PERSISTENT STORAGE</span>
+                <h4>What Is Stored in Database</h4>
+              </div>
+              <ul>
+                <li><strong>User Identity:</strong> User ID, Google Subject ID, verified email, name, avatar URL.</li>
+                <li><strong>Candidate Records:</strong> Merchant name, estimated cost, currency, billing interval, detected renewal date, confidence score, source message ID, email subject, sender, and a short sanitized text snippet (<code>email_snippet</code>).</li>
+                <li><strong>OAuth Tokens:</strong> Encrypted Google OAuth access and refresh tokens (in <code>email_accounts</code>) to permit requested mailbox syncs until disconnected.</li>
+                <li><strong>Inventory &amp; Approvals:</strong> Confirmed subscriptions, user-edited parameters, and immutable audit events for cancellation runs.</li>
+              </ul>
+            </div>
+
+            <div class="storage-box discarded">
+              <div class="box-header">
+                <span class="icon-tag discarded">NEVER STORED</span>
+                <h4>What Is Discarded Immediately</h4>
+              </div>
+              <ul>
+                <li><strong>Full Raw Email Bodies:</strong> Complete MIME text/HTML email bodies are processed in-memory and discarded. They are never written to disk or permanent databases.</li>
+                <li><strong>Email Attachments:</strong> Invoices attached as PDF, images, or files are not stored on our servers.</li>
+                <li><strong>Non-Billing Emails:</strong> Personal messages, newsletters, notifications, and irrelevant correspondence are ignored and discarded.</li>
+                <li><strong>Account Credentials:</strong> Google passwords or payment card details are never requested, handled, or stored.</li>
+              </ul>
+            </div>
+          </div>
+
+          <h3 style="margin-top: 24px;">Retention Periods</h3>
+          <p>
+            Stored subscription records and candidate metadata remain accessible for as long as your account remains active. 
+            If you disconnect a mailbox, its OAuth credentials are removed immediately. If you request account data deletion, 
+            all user-scoped records are permanently purged from the database.
+          </p>
+        </section>
+
+        <!-- Section 6: Third-Party Processors & Sharing -->
+        <section id="section-6" class="legal-card">
+          <div class="section-number">06</div>
+          <h2>Third-Party Processors &amp; Data Sharing</h2>
+          <p>
+            <strong>We do not sell, rent, monetize, or trade your personal data or email contents to anyone.</strong> 
+            We do not share your data with third-party advertisers, data brokers, or marketing networks.
+          </p>
+          <p>
+            We only transfer data to the following infrastructure subprocessors strictly necessary to operate the application:
+          </p>
+
+          <div class="subprocessors-grid">
+            <div class="subprocessor-card">
+              <div class="sub-header">
+                <strong>Google Cloud Platform &amp; APIs</strong>
+                <span class="badge-role">Authentication &amp; Mailbox</span>
+              </div>
+              <p>
+                Provides Google Sign-In (OpenID Connect) and read-only Gmail API access under your explicit consent. 
+                Data processed in accordance with Google’s security policies.
+              </p>
+              <div class="sub-loc">Location: United States / Global</div>
+            </div>
+
+            <div class="subprocessor-card">
+              <div class="sub-header">
+                <strong>Render Services, Inc. (render.com)</strong>
+                <span class="badge-role">Cloud Hosting</span>
+              </div>
+              <p>
+                Hosts SubCan’s static web frontend (<code>subcan-frontend.onrender.com</code>) and backend web application 
+                (<code>subcan.onrender.com</code>) with TLS encryption.
+              </p>
+              <div class="sub-loc">Location: United States / Oregon</div>
+            </div>
+
+            <div class="subprocessor-card">
+              <div class="sub-header">
+                <strong>Google Fonts (Google LLC)</strong>
+                <span class="badge-role">Web Typography</span>
+              </div>
+              <p>
+                Delivers the Plus Jakarta Sans and JetBrains Mono fonts used for user interface rendering. 
+                No authentication or personal subscription data is sent to Google Fonts.
+              </p>
+              <div class="sub-loc">Location: Global CDN</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 7: Google API Limited Use Requirements -->
+        <section id="section-7" class="legal-card highlight-border">
+          <div class="section-number">07</div>
+          <h2>Google API Services User Data Policy Compliance</h2>
+          
+          <div class="google-policy-box">
+            <div class="google-logo-row">
+              <svg width="24" height="24" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+              </svg>
+              <h3>Limited Use Disclosure</h3>
+            </div>
+            <p>
+              SubCan's use and transfer to any other app of information received from Google APIs will adhere to the 
+              <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>, 
+              including the <strong>Limited Use</strong> requirements.
+            </p>
+          </div>
+
+          <p style="margin-top: 16px;">Specifically, SubCan affirms that:</p>
+          <ul class="check-list">
+            <li>
+              <strong>Feature-Specific Use:</strong> Data received via Gmail API is strictly used to provide user-facing features: discovering recurring subscriptions, displaying billing evidence, and tracking renewal cycles.
+            </li>
+            <li>
+              <strong>No Advertising:</strong> Google user data is never used, transferred, or sold for serving advertisements, interest-based targeting, or retargeting.
+            </li>
+            <li>
+              <strong>No AI Model Training:</strong> Google user data is not used to train, fine-tune, or develop generalized artificial intelligence, machine learning models, or large language models (LLMs).
+            </li>
+            <li>
+              <strong>Human Reading Prohibited:</strong> Humans do not read your email data unless: (a) you provide explicit consent for troubleshooting specific messages, (b) required for security audits or investigating abuse, (c) complying with applicable law, or (d) the data is aggregated and anonymized for internal system analytics.
+            </li>
+          </ul>
+        </section>
+
+        <!-- Section 8: Security & Multi-Tenant Isolation -->
+        <section id="section-8" class="legal-card">
+          <div class="section-number">08</div>
+          <h2>Security Architecture &amp; Multi-Tenant Isolation</h2>
+          <p>
+            We implement comprehensive technical, operational, and organizational security controls to protect your data against unauthorized access, alteration, or disclosure:
+          </p>
+
+          <div class="security-features-grid">
+            <div class="security-feature">
+              <div class="sec-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </div>
+              <h4>OAuth 2.0 with PKCE</h4>
+              <p>
+                Enforces Proof Key for Code Exchange (RFC 7636) and cryptographically random CSRF state tokens to prevent authorization code interception and cross-site injection attacks.
+              </p>
+            </div>
+
+            <div class="security-feature">
+              <div class="sec-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              </div>
+              <h4>Multi-Tenant Row-Level Isolation</h4>
+              <p>
+                All database operations strictly enforce user boundaries (<code>WHERE user_id = ?</code>). Session tokens cannot inspect, modify, or leak across tenant data boundaries.
+              </p>
+            </div>
+
+            <div class="security-feature">
+              <div class="sec-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 14 14"/></svg>
+              </div>
+              <h4>Hashed Session Tokens</h4>
+              <p>
+                Server-side sessions are indexed via SHA-256 cryptographic hashes. Raw session tokens are never stored in plain text and are delivered using <code>HttpOnly</code>, <code>Secure</code>, and <code>SameSite=None</code> cookies.
+              </p>
+            </div>
+
+            <div class="security-feature">
+              <div class="sec-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              </div>
+              <h4>Human Approval Gate &amp; Idempotency</h4>
+              <p>
+                Every proposed action requires manual user authorization and is protected by cryptographic idempotency keys, preventing accidental re-execution or process duplicate runs.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 9: User Privacy Rights (GDPR / CCPA) -->
+        <section id="section-9" class="legal-card">
+          <div class="section-number">09</div>
+          <h2>User Privacy Rights (GDPR, CCPA &amp; Global Frameworks)</h2>
+          <p>
+            Depending on your jurisdiction (including the European Economic Area under GDPR and California under CCPA/CPRA), 
+            you have specific legal rights regarding your personal information:
+          </p>
+
+          <div class="rights-list">
+            <div class="right-item">
+              <strong>Right to Access &amp; Portability:</strong>
+              <span>You have the right to request a complete machine-readable copy of your data. SubCan provides an automated JSON data export at <code>GET /api/user/export</code> or directly via the "Export Data" button in your dashboard.</span>
+            </div>
+            <div class="right-item">
+              <strong>Right to Erasure ("Right to Be Forgotten"):</strong>
+              <span>You have the right to request the permanent deletion of your account and associated records. You can execute this via <code>DELETE /api/user/data</code> or by contacting our privacy contact.</span>
+            </div>
+            <div class="right-item">
+              <strong>Right to Rectification:</strong>
+              <span>You can edit service names, amounts, billing frequencies, renewal dates, and notes for any tracked subscription at any time using the dashboard edit dialog.</span>
+            </div>
+            <div class="right-item">
+              <strong>Right to Withdraw Consent:</strong>
+              <span>You may revoke Gmail mailbox authorization at any moment without penalty. Disconnecting immediately halts email scanning and revokes stored tokens.</span>
+            </div>
+            <div class="right-item">
+              <strong>California CCPA/CPRA Disclosure:</strong>
+              <span>We do not sell personal information or share personal information for cross-context behavioral advertising. We do not discriminate against users who exercise their privacy rights.</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 10: Mailbox Disconnection & Deletion Procedures -->
+        <section id="section-10" class="legal-card">
+          <div class="section-number">10</div>
+          <h2>Mailbox Disconnection &amp; Account Deletion Procedures</h2>
+          <p>
+            You maintain full, instantaneous control over your connected accounts and stored data through the following mechanisms:
+          </p>
+
+          <div class="procedure-cards">
+            <div class="procedure-card">
+              <h4>Option A: Disconnect Gmail Mailbox (Self-Service)</h4>
+              <p>To disconnect your email account and stop all mailbox scanning:</p>
+              <ol>
+                <li>Open your SubCan dashboard at <a href="./index.html">/index.html</a>.</li>
+                <li>Navigate to the <strong>Connected Accounts / Discovery</strong> panel.</li>
+                <li>Click <strong>Disconnect Mailbox</strong>.</li>
+              </ol>
+              <div class="procedure-callout">
+                <strong>Technical Effect:</strong> SubCan immediately calls <code>/api/email/disconnect</code>, deletes stored OAuth access and refresh tokens from the database, and executes a best-effort revocation request against Google's token revocation endpoint (<code>https://oauth2.googleapis.com/revoke</code>).
+              </div>
+            </div>
+
+            <div class="procedure-card">
+              <h4>Option B: Revoke via Google Account Permissions</h4>
+              <p>You can independently revoke SubCan's access directly from Google at any time:</p>
+              <ol>
+                <li>Visit your Google Account Security Dashboard: <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">https://myaccount.google.com/permissions</a>.</li>
+                <li>Select <strong>SubCan</strong> from the list of third-party apps with account access.</li>
+                <li>Click <strong>Remove Access</strong>.</li>
+              </ol>
+              <div class="procedure-callout">
+                <strong>Technical Effect:</strong> Google instantly invalidates all refresh tokens issued to SubCan, permanently blocking any further API calls.
+              </div>
+            </div>
+
+            <div class="procedure-card">
+              <h4>Option C: Complete Account &amp; Data Deletion</h4>
+              <p>To permanently purge all records associated with your account:</p>
+              <ol>
+                <li>Click the <strong>Export Data</strong> button in the dashboard if you wish to retain a personal JSON archive.</li>
+                <li>Issue a deletion request via the authenticated API: <code>DELETE /api/user/data</code>, or email our privacy contact.</li>
+              </ol>
+              <div class="procedure-callout">
+                <strong>Technical Effect:</strong> Deletes all tracked subscriptions, candidate records, action records, audit events, orchestration runs, and email account credentials from the SQLite store.
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 11: Children's Privacy -->
+        <section id="section-11" class="legal-card">
+          <div class="section-number">11</div>
+          <h2>Children's Privacy</h2>
+          <p>
+            SubCan is a financial workflow application intended exclusively for adult individuals or emancipated users capable 
+            of entering into legally binding contracts. The Service is not directed to children under 13 years of age 
+            (or under 16 years of age in the European Economic Area / UK).
+          </p>
+          <p>
+            We do not knowingly collect, maintain, or process personal data from children. If we discover that a user under 
+            the required minimum age has registered an account or authorized access, we will immediately delete all collected 
+            information and terminate the account session.
+          </p>
+        </section>
+
+        <!-- Section 12: Changes & Policy Updates -->
+        <section id="section-12" class="legal-card">
+          <div class="section-number">12</div>
+          <h2>Changes &amp; Policy Updates</h2>
+          <p>
+            We may revise this Privacy Policy periodically to reflect enhancements in our application features, 
+            operational security improvements, or evolving regulatory and legal standards.
+          </p>
+          <p>
+            When material changes are enacted, we will update the "Last Updated" and "Effective Date" markers at the top of 
+            this document. For significant modifications impacting how personal email data is processed, we will provide 
+            conspicuous notice within the application dashboard prior to the changes taking effect. 
+            Continued use of SubCan following the posting of an updated policy signifies your acknowledgment and acceptance 
+            of the revisions.
+          </p>
+        </section>
+
+        <!-- Section 13: Contact Information & Legal Entity -->
+        <section id="section-13" class="legal-card">
+          <div class="section-number">13</div>
+          <h2>Contact Information &amp; Legal Entity Details</h2>
+          <p>
+            If you have inquiries, questions, data access requests, or privacy concerns regarding this Privacy Policy 
+            or SubCan’s handling of your information, please reach out to our privacy representative:
+          </p>
+
+          <div class="contact-details-card">
+            <div class="contact-grid">
+              <div class="contact-entry">
+                <span class="contact-label">DESIGNATED PRIVACY CONTACT</span>
+                <strong class="contact-val highlight-email">[ACTION REQUIRED: Replace with Owner Email — e.g., privacy@subcan.com]</strong>
+                <span class="contact-sub">Direct email for data deletion and privacy rights requests.</span>
+              </div>
+              <div class="contact-entry">
+                <span class="contact-label">PROJECT NAME &amp; MAINTAINER</span>
+                <strong class="contact-val">SubCan Project Maintainers (Loki &amp; Team)</strong>
+                <span class="contact-sub">AI-Powered Subscription Cancellation Agent</span>
+              </div>
+              <div class="contact-entry">
+                <span class="contact-label">LEGAL ENTITY &amp; REGISTERED ADDRESS</span>
+                <strong class="contact-val">[ACTION REQUIRED: Insert Legal Entity Name &amp; Physical Address before public deployment]</strong>
+                <span class="contact-sub">Required for formal regulatory compliance and Google Cloud verification.</span>
+              </div>
+              <div class="contact-entry">
+                <span class="contact-label">HOSTED DEPLOYMENTS</span>
+                <strong class="contact-val">Frontend: https://subcan-frontend.onrender.com</strong>
+                <strong class="contact-val">Backend: https://subcan.onrender.com</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="disclaimer-footer-card">
+            <strong>Legal Notice Disclaimer:</strong>
+            <p>
+              This document specifies the actual, implemented architecture, OAuth scopes, and data minimization mechanisms 
+              of the SubCan software system. It does not constitute formal legal advice. Prior to commercial release or 
+              submitting for public Google Cloud OAuth verification, the project owner should review and approve these disclosures 
+              with qualified legal counsel.
+            </p>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </main>
+
+  <!-- Global Footer -->
+  <footer class="privacy-page-footer" role="contentinfo">
+    <div class="privacy-footer-inner">
+      <div class="footer-left">
+        <div class="logo-mark mini" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+          </svg>
+        </div>
+        <span>&copy; 2026 SubCan &bull; AI-Powered Subscription Cancellation Agent. All rights reserved.</span>
+      </div>
+      <nav class="footer-links-nav" aria-label="Legal footer links">
+        <a href="./privacy.html" class="footer-nav-link active">Privacy Policy</a>
+        <span class="footer-sep">&bull;</span>
+        <a href="./login.html" class="footer-nav-link">Sign In</a>
+        <span class="footer-sep">&bull;</span>
+        <a href="./index.html" class="footer-nav-link">Dashboard</a>
+        <span class="footer-sep">&bull;</span>
+        <a href="#section-1" class="footer-nav-link" onclick="window.scrollTo({top: 0, behavior: 'smooth'}); return false;">Back to Top &uarr;</a>
+      </nav>
+    </div>
+  </footer>
+
+  <!-- Light interactive script for Table of Contents active highlighting and navigation -->
+  <script>
+    (function() {
+      // Highlight active Table of Contents item as user scrolls
+      const tocLinks = document.querySelectorAll('.toc-link');
+      const sections = document.querySelectorAll('.privacy-content section[id]');
+
+      function onScroll() {
+        let currentSectionId = '';
+        const scrollPosition = window.scrollY + 180;
+
+        sections.forEach(function(section) {
+          const top = section.offsetTop;
+          const height = section.offsetHeight;
+          if (scrollPosition >= top && scrollPosition < top + height) {
+            currentSectionId = section.getAttribute('id');
+          }
+        });
+
+        tocLinks.forEach(function(link) {
+          link.classList.remove('active');
+          if (link.getAttribute('href') === '#' + currentSectionId) {
+            link.classList.add('active');
+          }
+        });
+      }
+
+      window.addEventListener('scroll', onScroll, { passive: true });
+      onScroll();
+    })();
+  </script>
+</body>
+</html>
